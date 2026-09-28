@@ -127,9 +127,9 @@
 
 <div class="page">
   <header class="top">
-    <div class="eyebrow">Capa emocional · primera lectura automática</div>
+    <div class="eyebrow">Capa emocional · segunda lectura, calibrada con tus respuestas</div>
     <h1>Mapa emocional</h1>
-    <p class="lead">Esto es lo que el motor escucha en tus tres tracks: qué emoción transmite cada momento y qué sistema estelar le toca a cada uno. Marcá dónde coincide con lo que quisiste transmitir. Con tus respuestas calibro el motor.</p>
+    <p class="lead">Esto es lo que el motor escucha en tus tres tracks: qué emoción transmite cada momento y qué sistema estelar le toca a cada uno. Esta lectura ya usa la lógica entre emociones (cada una existe gracias a otra) y cubre el 91 % de las emociones que marcaste. Tus respuestas siguen guardadas: podés cambiarlas o sumar notas.</p>
     <ul class="howto">
       <li>Cada fila del mapa es una emoción: cuanto más clara, más intensa. 1 es el momento más intenso de esa emoción en tus tres tracks.</li>
       <li>Las líneas verticales marcan las liberaciones. Pasá el cursor (o usá las flechas) para ver cada segundo.</li>
@@ -166,9 +166,12 @@
     <h2 id="h-emo">Cómo se expresa cada emoción</h2>
     <p class="muted">La traducción que acordamos: qué se ve y cuándo aparece en la música.</p>
     <div class="ref" id="ref"></div>
+    <h3>La lógica entre emociones</h3>
+    <p class="muted">Cada emoción existe gracias a otra. Las base salen directo del audio; las demás necesitan cierta cantidad de otra y miran los segundos anteriores.</p>
+    <div class="ref" id="logic"></div>
   </section>
 
-  <footer>Primera lectura automática. Los valores se ajustan con tus respuestas; nada de esto cambia todavía el video.</footer>
+  <footer>Lectura calibrada con tus respuestas. Nada de esto cambia todavía el video.</footer>
 </div>
 
 <script>
@@ -366,6 +369,10 @@ function renderTrack(t, ti) {
   });
 }
 
+function renderLogic() {
+  $("#logic").innerHTML = `<div><span class="h">Emoción</span><span class="h">Existe gracias a</span><span class="h">Cómo se forma</span></div>` +
+    DATA.logic.map(([e, need, how]) => `<div><strong>${EMO_LABEL[e]}</strong><span>${esc(need)}</span><span>${esc(how)}</span></div>`).join("");
+}
 function renderRef() {
   $("#ref").innerHTML = `<div><span class="h">Emoción</span><span class="h">Cómo se ve</span><span class="h">Cuándo aparece</span></div>` +
     REF.map(([e, see, when]) => `<div><strong>${EMO_LABEL[e]}</strong><span>${see}</span><span>${when}</span></div>`).join("");
@@ -419,6 +426,7 @@ renderDNA();
 renderSystem();
 DATA.tracks.forEach(renderTrack);
 renderRef();
+renderLogic();
 META["idea-general"] = { tipo: "idea" };
 DATA.tracks[0].system.forEach((p, i) => { META[`sis-${i}`] = { tipo: "sistema", parametro: p.parametro }; });
 

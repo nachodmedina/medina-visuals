@@ -52,7 +52,7 @@ def main():
     order = list(keys)
     base = lambda p: os.path.splitext(os.path.basename(p))[0]
     tracks.sort(key=lambda p: (order.index(base(p)) if base(p) in order else len(order), base(p)))
-    data = dict(emotions=list(em.EMOTIONS), axes=list(em.DNA_AXES), tracks=[])
+    data = dict(emotions=list(em.EMOTIONS), axes=list(em.DNA_AXES), tracks=[], logic=[list(x) for x in em.LOGIC])
     for i, p in enumerate(tracks):
         name = os.path.splitext(os.path.basename(p))[0]
         data["tracks"].append(track_data(p, keys.get(name, f"t{i}")))

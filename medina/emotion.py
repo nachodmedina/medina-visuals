@@ -120,9 +120,7 @@ def features(A, fps, bpm):
     idx = np.arange(n)
     last = np.maximum.accumulate(np.where(A["rise"], idx, -1))
     post = np.where(last >= 0, np.exp(-(idx - last) / (8 * fps)), 0.0)
-    # alivio: la liberación, pesada por cuánta tensión la precede (los 30 s anteriores)
-    prior = maximum_filter1d(tension, int(30 * fps), origin=int(15 * fps) - 1, mode="nearest")
-    relief = np.where(last >= 0, np.exp(-(idx - last) / (6 * fps)), 0.0) * prior[np.maximum(last, 0)]
+    since = np.where(last >= 0, (idx - last) / fps, np.inf)          # segundos desde la última liberación
     # luz que sube: el brillo asciende durante unos segundos
     b8 = np.r_[np.full(int(8 * fps), brightness[0]), brightness[:-int(8 * fps)]]
     rising = np.clip((brightness - b8) * 3, 0, 1)
@@ -133,7 +131,15 @@ def features(A, fps, bpm):
             if Ly["center"][k] > 700 and Ly["first"][k] < n:
                 f0 = int(Ly["first"][k])
                 entry[f0:] = np.maximum(entry[f0:], np.exp(-(idx[f0:] - f0) / (8 * fps)))
-    return dict(alivio=relief, sube=rising, entrada=entry, energia=energy, densidad=density, brillo=brightness, aspereza=rough,
+    # algo desconocido aparece: entra cualquier elemento nuevo
+    appear = np.zeros(n)
+    if Ly and Ly["order"]:
+        for k in Ly["order"]:
+            if Ly["first"][k] < n:
+                f0 = int(Ly["first"][k])
+                appear[f0:] = np.maximum(appear[f0:], np.exp(-(idx[f0:] - f0) / (15 * fps)))
+    return dict(aparece=appear, rel_idx=np.maximum(last, 0), rel_since=since,
+                sube=rising, entrada=entry, energia=energy, densidad=density, brillo=brightness, aspereza=rough,
                 claridad=_norm(clarity), color=np.clip(0.5 + color * 2, 0, 1), sorpresa=novelty,
                 repeticion=_norm(repetition), pulso=pulse, tension=tension, subida=riser,
                 contraste=contrast, cerrado=closed.astype(float), silencio=_sm(A["silent"], fps, 1),
@@ -141,38 +147,76 @@ def features(A, fps, bpm):
 
 
 # escala de cada emoción (calibrada con los tracks de tracks/: su percentil 98 conjunto)
-EMO_SCALE = dict(incertidumbre=0.713, miedo=0.359, esperanza=0.635, enigma=0.709, soledad=0.891,
+EMO_SCALE = dict(incertidumbre=0.753, miedo=0.323, esperanza=0.57, enigma=0.821, soledad=0.891,
                  fuerza=0.954, vulnerabilidad=0.347)
 
 
+def _prior(x, fps, sec=30):
+    """Máximo de x en los `sec` segundos anteriores a cada cuadro."""
+    return maximum_filter1d(x, int(sec * fps), origin=int(sec * fps / 2) - 1, mode="nearest")
+
+
+# La lógica entre emociones: cada una existe gracias a otra. Las base salen del audio; las
+# derivadas necesitan cierta cantidad de otra (umbrales suaves) y miran los segundos anteriores.
+LOGIC = [
+    ("incertidumbre", "base", "sin pulso claro, armonía indefinida, cambios inesperados, algo nuevo que aparece"),
+    ("soledad", "base", "poca densidad y poca energía"),
+    ("fuerza", "base", "energía plena y pulso firme; pega más después de una tensión"),
+    ("miedo", "necesita incertidumbre y algo que perder", "la incertidumbre de los últimos segundos, con una tensión que "
+                                                         "crece, oscura o áspera, después de haber tenido fuerza"),
+    ("enigma", "necesita incertidumbre", "la incertidumbre que toma forma: un patrón hipnótico, algo que aparece, o una "
+                                         "liberación que sale de la soledad hacia lo desconocido"),
+    ("vulnerabilidad", "necesita fuerza", "lo frágil que queda cuando la fuerza se retira"),
+    ("esperanza", "necesita oscuridad previa", "la liberación después del miedo (mucha) o de la soledad y la "
+                                               "incertidumbre (poca); también la luz que sube"),
+]
+
+
+def _gate(x, lo, hi):
+    """Umbral suave: 0 por debajo de `lo`, 1 por encima de `hi` (para que exista una emoción
+    tiene que haber cierta cantidad de otra)."""
+    t = np.clip((np.asarray(x, np.float64) - lo) / (hi - lo), 0, 1)
+    return t * t * (3 - 2 * t)
+
+
 def emotions(F, fps, scale=EMO_SCALE):
-    """Rasgos -> las siete emociones, una curva por emoción en 0..1."""
+    """Rasgos -> las siete emociones (0..1), en dos etapas: primero las base, que salen del audio;
+    después las que existen gracias a otras."""
     dark = 1 - F["brillo"]
     tonal = 1 - F["aspereza"]
-    raw = dict(
-        # la atracción: tensión que crece, oscura, áspera o con ruido que sube
-        miedo=_sm(F["tension"] ** 0.8 * (0.35 + 0.65 * dark) * (0.45 + 0.55 * np.maximum(F["aspereza"], F["subida"])), fps, 2),
-        # masa y gravedad: energía plena, pulso firme, sub entero
-        fuerza=_sm(F["energia"] ** 1.3 * (0.4 + 0.6 * F["pulso"]), fps, 1.5),
-        # sin pulso claro, armonía indefinida, cambios inesperados, el comienzo de un tramo filtrado
-        incertidumbre=_sm((0.35 * (1 - F["pulso"]) + 0.25 * (1 - F["claridad"]) + 0.25 * F["sorpresa"]
-                           + 0.15 * F["cerrado"] * (1 - F["tension"])), fps, 3),
-        # la luz: el alivio de una liberación tras una tensión larga, el brillo que sube,
-        # un elemento tonal y agudo que entra; más si la armonía es luminosa
-        esperanza=_sm(np.maximum.reduce([F["alivio"], F["sube"], F["entrada"] * tonal])
-                      * (0.6 + 0.4 * F["color"]), fps, 2),
-        # señales de lo desconocido: repetición hipnótica, armonía ambigua, tonal
-        enigma=_sm(F["repeticion"] * (0.5 + 0.5 * (1 - F["claridad"])) * (0.4 + 0.6 * tonal), fps, 4),
-        # un solo elemento en el vacío: poca densidad, poca energía (pero no silencio)
-        soledad=_sm((1 - F["densidad"]) ** 1.2 * (1 - F["energia"]) ** 0.6 * (1 - F["silencio"]), fps, 3),
-        # lo frágil después de la intensidad: cae la energía, queda poco
-        vulnerabilidad=_sm(F["contraste"] * (0.4 + 0.6 * (1 - F["densidad"])) * (0.5 + 0.5 * F["brillo"]), fps, 2),
-    )
-    E = {k: np.clip(raw[k] / scale[k], 0, 1) for k in EMOTIONS}
-    E["incertidumbre"] = E["incertidumbre"] * (1 - 0.7 * E["fuerza"])
-    E["esperanza"] = E["esperanza"] * (1 - 0.6 * E["miedo"])
-    E["enigma"] = E["enigma"] * (1 - 0.5 * E["fuerza"])
-    return E
+    N = lambda k, x: np.clip(x / scale[k], 0, 1)
+    # 1) base
+    incert0 = N("incertidumbre", _sm(0.35 * (1 - F["pulso"]) + 0.25 * (1 - F["claridad"]) + 0.25 * F["sorpresa"]
+                                     + 0.15 * F["cerrado"] * (1 - F["tension"]) + 0.2 * F["aparece"], fps, 3))
+    soledad = N("soledad", _sm((1 - F["densidad"]) ** 1.2 * (1 - F["energia"]) ** 0.6 * (1 - F["silencio"]), fps, 3))
+    fuerza0 = N("fuerza", _sm(F["energia"] ** 1.3 * (0.4 + 0.6 * F["pulso"]), fps, 1.5))
+    # 2) derivadas
+    mem_inc = _prior(incert0, fps, 20)                       # la incertidumbre de los últimos 20 s
+    miedo = N("miedo", _sm(F["tension"] ** 0.8 * (0.35 + 0.65 * dark)
+                           * (0.45 + 0.55 * np.maximum(F["aspereza"], F["subida"]))
+                           * (0.25 + 0.75 * _gate(mem_inc, 0.15, 0.5))
+                           * (0.2 + 0.8 * _gate(_prior(fuerza0, fps, 60), 0.3, 0.7)), fps, 2))   # algo que perder
+    vulner = N("vulnerabilidad", _sm(F["contraste"] * (0.4 + 0.6 * (1 - F["densidad"])) * (0.5 + 0.5 * F["brillo"])
+                                     * _gate(_prior(fuerza0, fps, 20), 0.3, 0.7), fps, 2))
+    # en cada liberación: ¿de dónde venía? del miedo -> alivio; de la soledad o la incertidumbre -> lo desconocido
+    last, since = F["rel_idx"], F["rel_since"]
+    prior_fear = _prior(miedo, fps, 30)[last]
+    prior_other = _prior(np.maximum.reduce([soledad, incert0, vulner]), fps, 30)[last]
+    seen = np.isfinite(since)
+    env_h = np.where(seen, np.exp(-np.where(seen, since, 0) / 15), 0.0)
+    env_u = np.where(seen, np.exp(-np.where(seen, since, 0) / 20), 0.0)
+    relief = env_h * np.clip(prior_fear + 0.35 * prior_other * (1 - prior_fear), 0, 1)
+    unknown = env_u * prior_other * (1 - prior_fear)
+    esperanza = N("esperanza", _sm(np.maximum.reduce([relief, F["sube"], F["entrada"] * tonal])
+                                   * (0.6 + 0.4 * F["color"]), fps, 2))
+    enigma = N("enigma", _sm(np.maximum(F["repeticion"] * (0.4 + 0.6 * tonal), 0.8 * F["aparece"])
+                             * (0.5 + 0.5 * (1 - F["claridad"])) * (0.3 + 0.7 * _gate(mem_inc, 0.1, 0.4))
+                             + 0.5 * unknown, fps, 4))
+    incert = np.clip(incert0 + 0.3 * _sm(unknown, fps, 3), 0, 1)
+    fuerza = np.clip(fuerza0 * (1 + 0.15 * env_h * _prior(F["tension"], fps, 30)[last]), 0, 1)
+    # convivencias: la fuerza no borra lo demás; el miedo apaga la esperanza
+    return dict(incertidumbre=incert * (1 - 0.25 * fuerza), miedo=miedo, esperanza=esperanza * (1 - 0.6 * miedo),
+                enigma=enigma * (1 - 0.15 * fuerza), soledad=soledad, fuerza=fuerza, vulnerabilidad=vulner)
 
 
 def sections(A, F, E, fps, min_len=12.0):
@@ -202,7 +246,7 @@ def sections(A, F, E, fps, min_len=12.0):
         m = {k: float(E[k][a:b].mean()) for k in EMOTIONS}
         top = sorted(m, key=m.get, reverse=True)
         out.append(dict(start=a / fps, end=b / fps, emociones=m,
-                        principales=[k for k in top[:2] if m[k] >= 0.2] or top[:1],
+                        principales=[k for k in top[:4] if m[k] >= 0.3] or top[:1],
                         tension=bool(closed[a:b].mean() > 0.5), liberacion=bool(A["rise"][a])))
     return out
 
