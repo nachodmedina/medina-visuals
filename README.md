@@ -132,6 +132,7 @@ En todos los estilos:
 | `medina/audio.py` | leer el archivo, tempo, beats, control de audio mudo, semilla del audio |
 | `medina/analysis.py` | escuchar el track: kicks, sub, tensión, liberaciones, respiración, caos, hats, silencios, capas, tonalidad |
 | `medina/score.py` | la partitura: el viaje, el movimiento, la cámara y el color de cada cuadro |
+| `medina/emotion.py` | la capa emocional (en calibración): qué emoción transmite cada momento (incertidumbre, miedo, esperanza, enigma, soledad, fuerza, vulnerabilidad), las secciones del track y su ADN, del que sale su sistema estelar. Todavía no cambia el video |
 | `medina/styles.py` | los estilos (partículas, arcos, estelas, disco) y la lente gravitacional |
 | `medina/space.py` | lo común a todos: estrellas, silencio, fenómenos de las capas, agujero negro |
 | `medina/post.py`, `medina/logo.py` | acabado reactivo y firma |

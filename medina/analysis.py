@@ -83,6 +83,12 @@ def analyze(y, fps, bpm_range=(100, 165)):
             m_[np.argmin(np.abs(freqs - np.sqrt(le[b] * le[b + 1])))] = True
         Lm[m_, b] = 1.0 / m_.sum()
     lspec = np.zeros((n_frames, 72), np.float32)
+    # para la capa emocional: brillo (centroide 60 Hz - 11 kHz) y aspereza (planitud 300 Hz - 8 kHz)
+    b_reg = band(60, 11000)
+    b_flat = band(300, 8000)
+    f_reg = freqs[b_reg]
+    centroid = np.zeros(n_frames, np.float32)
+    flatness = np.zeros(n_frames, np.float32)
     offs = np.arange(N_FFT)
     for s in range(0, n_frames, 4096):
         e = min(s + 4096, n_frames)
@@ -97,6 +103,10 @@ def analyze(y, fps, bpm_range=(100, 165)):
         totp[s:e] = P.sum(1)
         lspec[s:e] = P @ Lm
         chroma[s:e] = np.log1p(1e3 * P / (P.max(1, keepdims=True) + 1e-12)) @ Cm
+        Pr = P[:, b_reg]
+        centroid[s:e] = (Pr @ f_reg) / (Pr.sum(1) + 1e-12)
+        Pf = P[:, b_flat] + 1e-12
+        flatness[s:e] = np.exp(np.log(Pf).mean(1)) / Pf.mean(1)
 
     lmh_n = norm_db(lmh, 20, 99.5)
     low, mid, high = lmh_n[:, 0], lmh_n[:, 1], lmh_n[:, 2]
@@ -305,6 +315,12 @@ def analyze(y, fps, bpm_range=(100, 165)):
         kick=envelope(np.where(strength > 0, 1.0, 0.0).astype(np.float32), 0.80),
         strength=strength,
         onsets=onsets,
+        # señales para la capa emocional (medina/emotion.py)
+        level_db=tot_db.astype(np.float32),
+        centroid=centroid,
+        flatness=flatness,
+        chroma=chroma,
+        bands=np.log1p(lspec / (np.percentile(lspec, 97, axis=0) + 1e-12) * 30).astype(np.float32),
     )
 
 
