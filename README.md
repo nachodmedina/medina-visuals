@@ -16,7 +16,7 @@ El video es un **viaje en el espacio hacia un agujero negro**. Cada estado del t
 | se vacía | la **calma del vacío**: negro profundo y estrellas lejanas |
 | se desvanece al final | se cruza el horizonte: todo cae adentro |
 
-Estética: minimalismo oscuro y duro, mucho negro. Paleta negro / blanco / violeta. MED1NA chico en rojo, abajo a la derecha.
+Estética: minimalismo oscuro y duro, mucho negro. Paleta negro / blanco / violeta. MED1NA chico abajo a la derecha: letras negras con un filo tenue, que curvan el espacio que pasa detrás, como el agujero.
 
 ## Instalación
 
@@ -85,8 +85,8 @@ El estilo cambia solo en las liberaciones, de a un escalón:
 
 - **Partículas** (brillos, puntos): viven sobre un túnel radial y viajan hacia la cámara.
 - **Arcos**: anillos fragmentados que giran en sentidos opuestos y engranan con el kick.
-- **Estelas**: materia en órbita, más rápida cerca del agujero; el kick las estira.
-- **Disco**: el disco de acreción visto casi de canto (tipo Gargantua); la lente dobla la parte de atrás por arriba y por abajo del horizonte.
+- **Estelas**: materia en órbita, más rápida cerca del agujero; el kick las estira. La mayoría son tenues y brillan más cerca del horizonte, con anillos densos y huecos.
+- **Disco**: el disco de acreción visto en diagonal, casi de canto (tipo Gargantua); la lente dobla la parte de atrás alrededor del horizonte.
 
 En todos los estilos:
 
@@ -94,6 +94,7 @@ En todos los estilos:
 - **Estrellas lejanas** de fondo, con destellos en cruz en los hats.
 - **Fenómenos del espacio**: cada capa que entra suma uno (cometa, pulsar, luna en órbita, estrella que se enciende, meteoros, jets polares). Reacciona a la actividad de *esa* capa; la más nueva va en color de acento.
 - **Tensión**: erosión (los elementos se apagan de a uno) y, al final del tramo, lo que sobrevive titila con los hats. El último beat antes de la liberación es una **respiración** a negro.
+- **Liberación**: la materia se enciende entera, el remolino se retuerce y sale del horizonte una **onda gravitacional** que deforma el espacio a su paso durante unos segundos.
 
 ### 3. Acabado
 

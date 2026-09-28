@@ -963,6 +963,7 @@ class Renderer:
         self.roll, self.box = 0.0, None
         self.cam_on = True
         self.hole = None                          # (x, y, radio) del horizonte en píxeles de salida
+        self.ripple = None                        # onda gravitacional (factor radial), tras cada liberación
         self.accent_fixed = None                  # color de acento fijo (paleta), o RGB por liberación
         self.accent_cycle = None                  # colores que alternan por kick en las liberaciones
         yy, xx = np.mgrid[0:hh, 0:ww].astype(np.float32)
@@ -1099,12 +1100,51 @@ class Renderer:
                 band = f[y:y + hh]
                 band[:] = np.roll(band, int(g.integers(-140, 140) * s), axis=1)
         if self.P.get("title", True):
-            th, tw = self.title_mask.shape
-            x0, y0 = W - m - tw, H - m - th
-            pad = int(10 * s)
-            rect(f, x0 - pad, y0 - pad, x0 + tw + pad, y0 + th + pad, BLACK)
-            blit(f, self.title_mask, x0, y0, RED)
+            self._logo(f, A, i)
         return f
+
+    def _logo(self, f, A, i):
+        """MED1NA como un objeto masivo, igual que el agujero: letras negras con un filo blanco
+        finísimo y un halo suave; el espacio detrás se curva hacia ellas (lente), un poco más
+        en cada kick."""
+        W, H, s, m = self.W, self.H, self.s, self.m
+        mask = self.title_mask
+        th, tw = mask.shape
+        if not hasattr(self, "_lg"):
+            from scipy.ndimage import binary_dilation, gaussian_filter
+            pad = int(max(th, 24 * s) * 1.1)
+            big = np.zeros((th + 2 * pad, tw + 2 * pad), bool)
+            big[pad:pad + th, pad:pad + tw] = mask
+            edge = binary_dilation(big, iterations=max(1, int(round(1.1 * s)))) & ~big
+            glow = gaussian_filter(edge.astype(np.float32), 3.0 * s)
+            glow /= glow.max() + 1e-6
+            hb, wb = big.shape
+            yy, xx = np.mgrid[0:hb, 0:wb].astype(np.float32)
+            cyb, cxb = (hb - 1) / 2, (wb - 1) / 2
+            dn = np.hypot((xx - cxb) / (wb / 2), (yy - cyb) / (hb / 2))
+            self._lg = dict(pad=pad, big=big, edge=edge, glow=glow, xx=xx, yy=yy, c=(cxb, cyb), dn=dn)
+        L = self._lg
+        pad, big = L["pad"], L["big"]
+        hb, wb = big.shape
+        bx0, by0 = W - m - tw - pad, H - m - th - pad
+        if bx0 < 0 or by0 < 0 or bx0 + wb > W or by0 + hb > H:
+            blit(f, mask, W - m - tw, H - m - th, WHITE)
+            return
+        region = f[by0:by0 + hb, bx0:bx0 + wb].astype(np.float32)
+        # lente: lo de atrás se ve ampliado hacia el centro de las letras
+        cxb, cyb = L["c"]
+        k = 0.28 + 0.08 * float(A["kick"][i])
+        sf = 1 - k * np.exp(-2.2 * L["dn"] ** 2)
+        sx = np.clip(cxb + (L["xx"] - cxb) * sf, 0, wb - 1.001)
+        sy = np.clip(cyb + (L["yy"] - cyb) * sf, 0, hb - 1.001)
+        x0i, y0i = sx.astype(np.int32), sy.astype(np.int32)
+        fx, fy = (sx - x0i)[..., None], (sy - y0i)[..., None]
+        out = ((region[y0i, x0i] * (1 - fx) + region[y0i, x0i + 1] * fx) * (1 - fy)
+               + (region[y0i + 1, x0i] * (1 - fx) + region[y0i + 1, x0i + 1] * fx) * fy)
+        out = out + (0.14 * L["glow"])[..., None] * (255 - out)          # halo apenas perceptible
+        out[L["edge"]] = np.maximum(out[L["edge"]], 105)                # filo tenue
+        out[big] = 0                                                    # letras negras
+        f[by0:by0 + hb, bx0:bx0 + wb] = np.clip(out, 0, 255).astype(np.uint8)
 
     def timecode(self, i):
         sec = int(i / self.fps + self.start_offset)
@@ -1447,7 +1487,17 @@ class Renderer:
         w = w * w * (3 - 2 * w)
         r_eff = np.maximum(R + w * (src - R), s0)
         L[sl] = np.log(r_eff + 1e-4)
-        Tw[sl] += (1.0 + 1.2 * st["tw"]) * w * (Re / np.maximum(R, Re)) ** 2
+        glow = float(st.get("glow", 0.0))
+        Tw[sl] += (1.0 + 1.2 * st["tw"] + 3.0 * glow) * w * (Re / np.maximum(R, Re)) ** 2   # en el drop se retuerce más
+        # onda gravitacional: en cada liberación sale del horizonte una onda que estira y
+        # comprime el espacio a su paso (dura lo que el destello, ~2.5 s)
+        self.ripple = None
+        if glow > 0.03:
+            ts = -2.5 * np.log(glow)                   # segundos desde la liberación
+            d = self.RR - (Re + 0.9 * ts)
+            rip = (0.07 * glow ** 0.5 * np.sin(2 * np.pi * d / 0.16) * np.exp(-(d / 0.22) ** 2)).astype(np.float32)
+            L = L + np.log1p(rip)
+            self.ripple = 1 + rip
         self.lensL, self.lensT = L, Tw
         self.lens_box = (sl, (r_eff / np.maximum(R, 1e-4)).astype(np.float32))
         return L
@@ -1673,7 +1723,7 @@ class Renderer:
         # ondas de densidad espirales (colectivas: todas las órbitas se deforman juntas)
         g = np.random.default_rng([self.rng_seed, 2024])
         f1, f2, f3 = g.uniform(0, 2 * np.pi, 3)
-        u = u + 0.35 * np.sin(2 * ang_src + f1 + 0.15 * st["rot"]) + 0.2 * np.sin(3 * ang_src - f2 - 0.1 * st["rot"])
+        u = u + 0.18 * np.sin(2 * ang_src + f1 + 0.15 * st["rot"]) + 0.1 * np.sin(3 * ang_src - f2 - 0.1 * st["rot"])
         li = np.floor(u).astype(np.int32)
         fr = u - li
         ids = np.arange(-96, 96, dtype=np.int32)
@@ -1684,9 +1734,9 @@ class Renderer:
         lane_ang = (st["rot"] * 2.0 * om * spd).astype(np.float32)
         nseg = np.floor(1 + 6 * self._hash(ids + 70, z + 6, st["mut"])).astype(np.int32)
         dens = np.clip(0.5 + 0.5 * np.sin(ids * 0.37 + f3) * np.sin(ids * 0.11 + f1), 0, 1)   # anillos y huecos
-        bri = (0.25 + 0.9 * self._hash(ids + 2000, z + 7, 0) ** 1.6) * (0.55 + 0.6 * dens) \
+        bri = (0.18 + 0.95 * self._hash(ids + 2000, z + 7, 0) ** 2.4) * (0.55 + 0.6 * dens) \
             * np.clip(0.3 / np.maximum(r_l, 0.02), 0.35, 2.2)                                   # tenues; cerca del agujero, mucho brillo
-        thick = 0.45 + 1.1 * self._hash(ids + 2200, z + 8, 0)
+        thick = 0.35 + 0.8 * self._hash(ids + 2200, z + 8, 0) ** 1.5
         k = np.clip(li + 96, 0, 191)
         a = np.mod((ang_src + lane_ang[k]) * (1 / (2 * np.pi)), 1.0) * nseg[k]
         si = np.floor(a).astype(np.int32)
@@ -1702,8 +1752,9 @@ class Renderer:
         on = (np.abs(fr - 0.5) < wl) & seg_on
         if c["closed"]:
             on &= self._erode(li, c, 4)
-        along = (1 - fa / np.maximum(ln, 1e-3)) ** 1.6                                           # cabeza -> cola
-        I = np.where(on, bri[k] * along * (0.65 + 0.6 * c["kick"]) * (1 + 1.6 * st["glow"]), 0).astype(np.float32)
+        q = fa / np.maximum(ln, 1e-3)
+        along = (1 - q) ** 1.6 * np.clip(q / 0.07, 0, 1)                                          # cabeza que se funde -> cola
+        I = np.where(on, bri[k] * along * (0.65 + 0.6 * c["kick"]) * (1 + 4.0 * st["glow"]), 0).astype(np.float32)
         if c["closed"]:
             I *= 0.7 + 0.5 * self._nerv(c) * c["hat"]
         acc = on & (self._hash(li + 800, np.zeros_like(li) + 8, kc // 16) < (0.12 + 0.2 * c["chaos"]))
@@ -1725,20 +1776,26 @@ class Renderer:
         self._lens(st)
         sl, ratio = self.lens_box
         if not hasattr(self, "_RHO"):
-            yd = self.yy / si_
-            self._RHO = np.hypot(self.xx, yd).astype(np.float32)
-            self._PHI = np.arctan2(yd, self.xx).astype(np.float32)
+            al = np.deg2rad(self.P.get("tilt", -24.0))  # plano del disco en diagonal
+            self._XR = (self.xx * np.cos(al) + self.yy * np.sin(al)).astype(np.float32)
+            self._YR = (-self.xx * np.sin(al) + self.yy * np.cos(al)).astype(np.float32)
+            yd = self._YR / si_
+            self._RHO = np.hypot(self._XR, yd).astype(np.float32)
+            self._PHI = np.arctan2(yd, self._XR).astype(np.float32)
         rho, phi = self._RHO.copy(), self._PHI.copy()
-        xs, ys = self.xx[sl] * ratio, self.yy[sl] * ratio / si_
+        xs, ys = self._XR[sl] * ratio, self._YR[sl] * ratio / si_
         rho[sl] = np.hypot(xs, ys)
         phi[sl] = np.arctan2(ys, xs)
+        if self.ripple is not None:
+            rho *= self.ripple
         Re = float(st["rh"]) * 1.12
         I, acc, li = self._orbits(np.log(rho + 1e-4), phi + self.roll, st, c, kc, K, 0.5 * self.tg,
                                   wl_scale=np.float32(0.10))
         I *= (rho > 2.0 * Re) & (rho < 2.2)
-        I *= 1.9 * np.clip(1 - 0.45 * self.xx, 0.55, 1.5)             # doppler: brilla más el lado que se acerca
+        I *= np.clip(1.25 - 0.6 * rho + 0.8 * st["glow"], 0.15, 1.0)  # hacia afuera, más tenue (en el drop se enciende entero)
+        I *= 1.9 * np.clip(1 - 0.45 * self._XR, 0.55, 1.5)            # doppler: brilla más el lado que se acerca
         # lado que se aleja (derecha) en acento; cada órbita cambia de color en un punto distinto
-        doppler = self._hash(li + 1500, np.zeros_like(li) + 9, 0) < np.clip(0.5 + 0.9 * self.xx, 0, 1)
+        doppler = self._hash(li + 1500, np.zeros_like(li) + 9, 0) < np.clip(0.5 + 0.9 * self._XR, 0, 1)
         return self._levels(I, (I > 0) & (doppler | acc))
 
     def st_pdots(self, st, c, kc, frame):
@@ -1796,6 +1853,8 @@ class Renderer:
         d = self.RR * np.cos(a) / np.cos(sector / 2)
         sl, ratio = self.lens_box
         d[sl] *= ratio
+        if self.ripple is not None:
+            d *= self.ripple
         on, red, ni = self._radial(d, st, c, kc, self.P.get("K", 4.0))
         return on.astype(np.uint8) + red.astype(np.uint8)
 
