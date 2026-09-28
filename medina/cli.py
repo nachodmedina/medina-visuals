@@ -59,7 +59,7 @@ def parse_args(argv=None):
     return a
 
 
-def listen(a, fps, H):
+def listen(a, fps):
     """Leer el track y armar la partitura (imprime lo que el motor escuchó)."""
     t0 = time.time()
     print("Analizando audio...", flush=True)
@@ -86,7 +86,7 @@ def listen(a, fps, H):
     print(f"  capítulos: {int(A['chapter'].max()) + 1} · liberaciones: {int(A['rise'].sum())} · "
           f"sub filtrado: {100 * (1 - A['sub_on'].mean()):.0f}% del tiempo", flush=True)
     print(f"  {A['n'] / fps / 60:.1f} min · {len(A['onsets'])} kicks · {time.time() - t0:.1f}s", flush=True)
-    return build_score(A, a.preset, fps, a.seed, s=H / 1080, camera=a.cam, palette=a.paleta)
+    return build_score(A, a.preset, fps, a.seed, camera=a.cam, palette=a.paleta)
 
 
 def main(argv=None):
@@ -104,7 +104,7 @@ def main(argv=None):
         with open(a.score, "rb") as fh:
             score = pickle.load(fh)
     else:
-        score = listen(a, a.fps, H)
+        score = listen(a, a.fps)
     fps, n = score.fps, score.n
 
     if a.show_keys:
@@ -132,7 +132,10 @@ def main(argv=None):
     if stills is None and not a.score and jobs > 1 and (i1 - i0) >= jobs * 10 * fps:
         worker = ["--res", a.res, "--start", str(a.start), "--title", a.title, "--encoder-preset", a.x264,
                   "--crf", str(a.crf), "--look", a.look, "--ss", str(a.ss)] + (["--font", a.font] if a.font else [])
-        render_parallel(score, a.output, a.audio, i0, i1, jobs, t_start, t_len, worker, a.no_audio)
+        try:
+            render_parallel(score, a.output, a.audio, i0, i1, jobs, t_start, t_len, worker, a.no_audio)
+        except RuntimeError as e:
+            sys.exit(str(e))
         print(f"Listo: {a.output}  ({(time.time() - t0) / 60:.1f} min)")
         return
 

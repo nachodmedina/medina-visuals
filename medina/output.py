@@ -55,21 +55,27 @@ def render_video(renderer, i0, i1, enc, quiet=False):
     enc.wait()
 
 
-def render_stills(renderer, stills, base, start=0.0):
-    """Guarda un PNG por cada cuadro de `stills` (con la estela precalentada)."""
+def draw_still(renderer, i):
+    """El cuadro i con su propia estela precalentada: sale igual que en un video que arranca
+    3 s antes, sin importar qué otros cuadros se hayan dibujado."""
     g = renderer.grid
     warm = int(WARM_S * g.fps) if renderer.post is not None else 0
     frame = np.zeros((g.H, g.W, 3), np.uint8)
-    todo = sorted({i for s in stills for i in range(max(0, s - warm), s + 1)})
-    keep = set(stills)
+    if renderer.post is not None:
+        renderer.post.reset()
+    for j in range(max(0, i - warm), i + 1):
+        renderer.draw(frame, j)
+    return frame
+
+
+def render_stills(renderer, stills, base, start=0.0):
+    """Guarda un PNG por cada cuadro de `stills`."""
     saved = []
-    for i in todo:
-        renderer.draw(frame, i)
-        if i in keep:
-            ts = start + i / g.fps
-            path = f"{base}_{int(ts // 60)}m{ts % 60:05.2f}s.png"
-            Image.fromarray(frame).save(path)
-            saved.append(path)
+    for s in stills:
+        ts = start + s / renderer.grid.fps
+        path = f"{base}_{int(ts // 60)}m{ts % 60:05.2f}s.png"
+        Image.fromarray(draw_still(renderer, s)).save(path)
+        saved.append(path)
     return saved
 
 
@@ -100,7 +106,7 @@ def render_parallel(score, output, audio, i0, i1, jobs, t_start, t_len, worker_a
             print(f"\r  tramos listos {done}/{jobs}  ({int(time.time() - t1)}s)", end="", flush=True)
         print()
         if any(p.returncode for p in procs):
-            sys.exit("Falló algún tramo del render en paralelo.")
+            raise RuntimeError("Falló algún tramo del render en paralelo.")
         lst = os.path.join(tmp, "parts.txt")
         with open(lst, "w") as fh:
             fh.writelines(f"file '{p}'\n" for p in parts)

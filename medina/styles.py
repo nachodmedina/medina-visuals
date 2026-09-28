@@ -222,7 +222,7 @@ def _orbits(grid, fr, Lr, ang_src, K, lw_px, wl_scale=None):
     on = (np.abs(fr_ - 0.5) < wl) & seg_on
     if c["closed"]:
         on &= erode(li, c, 4)
-    q = fa / np.maximum(ln, 1e-3)
+    q = np.minimum(fa / np.maximum(ln, 1e-3), 1)                                             # fuera del segmento no se usa
     along = (1 - q) ** 1.6 * np.clip(q / 0.07, 0, 1)                                          # cabeza que se funde -> cola
     I = np.where(on, bri[k] * along * (0.65 + 0.6 * c["kick"]) * (1 + 4.0 * st["glow"]), 0).astype(np.float32)
     if c["closed"]:

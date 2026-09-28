@@ -32,13 +32,12 @@ class FrameState:
 
 
 class Score:
-    def __init__(self, fps, seed, preset, analysis, frames, accent, camera, s):
+    def __init__(self, fps, seed, preset, analysis, frames, accent, camera):
         self.fps, self.seed, self.preset = fps, seed, preset
         self.analysis = analysis      # señales del track (analysis.analyze)
         self.frames = frames          # list[FrameState], uno por cuadro
         self.accent = accent          # (n, 3) uint8
-        self.camera = camera          # dict de arrays (n,) o None
-        self.s = s                    # escala de salida usada para el temblor de cámara (alto / 1080)
+        self.camera = camera          # dict de arrays (n,) o None; dx, dy en píxeles de 1080p
 
     @property
     def n(self):
@@ -68,7 +67,7 @@ class _Motion:
             st["ch"] = c["chapter"]
             st["g"] = np.random.default_rng([self.seed, 202, c["chapter"]])
             st["wt"] = st["g"].choice([0.3, 0.5, 0.8, 1.0, 1.6, 2.2], size=32).astype(np.float32)
-        st["glow"] *= np.exp(-1 / (2.5 * fps))      # destello de la materia: se calma en ~2.5 s
+        st["glow"] = float(st["glow"] * np.exp(-1 / (2.5 * fps)))   # destello de la materia: se calma en ~2.5 s
         if A["rise"][i]:
             st["rel"] = int(0.5 * fps)
             st["glow"] = 1.0
@@ -162,7 +161,7 @@ def _accents(A, palette):
     return np.array(ACCENTS, np.uint8)[A["accent"].astype(np.int64)]
 
 
-def _camera(A, fps, seed, s):
+def _camera(A, fps, seed):
     """Cámara, función pura del cuadro.
     zoom: empuja hacia adentro con la tensión (sobre todo al final) y suelta de golpe en la
     liberación, con un rebote; en lo abierto respira lento. kick: golpe de zoom + empujón.
@@ -200,18 +199,18 @@ def _camera(A, fps, seed, s):
     on = np.where(A["strength"] > 0, idx, -1)
     last = np.maximum.accumulate(on)
     ang = hash32(np.maximum(last, 0), np.zeros(n, np.int64) + 31, seed) * 2 * np.pi
-    sh = 15.0 * s * kamp
+    sh = 15.0 * kamp                       # en píxeles de 1080p (el render lo escala)
     dx, dy = sh * np.cos(ang), sh * np.sin(ang)
     # nervio: temblor chico en los hats al final de la tensión
     nerv = np.clip((T - 0.35) / 0.65, 0, 1) * (T > 0)
     hang = hash32(A["hat_n"].astype(np.int64), np.zeros(n, np.int64) + 57, seed) * 2 * np.pi
-    hs_ = 5.0 * s * A["hat"] * nerv
+    hs_ = 5.0 * A["hat"] * nerv
     dx, dy = dx + hs_ * np.cos(hang), dy + hs_ * np.sin(hang)
     return dict(zoom=zoom, roll=roll, dx=dx, dy=dy)
 
 
-def build_score(A, preset="viaje", fps=30, seed=0, s=1.0, camera=True, palette="violeta"):
-    """Análisis -> partitura. `s` = alto de salida / 1080 (escala del temblor de cámara)."""
+def build_score(A, preset="viaje", fps=30, seed=0, camera=True, palette="violeta"):
+    """Análisis -> partitura (independiente de la resolución de salida)."""
     journey = _Journey(A, fps, preset) if PRESETS[preset]["style"] == "journey" else None
     motion = _Motion(A, fps, seed)
     onset_set = set(A["onsets"].tolist())
@@ -224,4 +223,4 @@ def build_score(A, preset="viaje", fps=30, seed=0, s=1.0, camera=True, palette="
         st, c = motion.step(i, kc)
         frames.append(FrameState(name, {k: st[k] for k in _ST_KEYS}, c, kc))
     return Score(fps, seed, preset, A, frames, _accents(A, palette),
-                 _camera(A, fps, seed, s) if camera else None, s)
+                 _camera(A, fps, seed) if camera else None)

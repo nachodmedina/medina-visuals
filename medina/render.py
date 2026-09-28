@@ -88,8 +88,9 @@ class Renderer:
         gw, gh = g.ww, g.hh
         bw, bh = gw / z, gh / z
         mx, my = (gw - bw) / 2, (gh - bh) / 2
-        x0 = mx + float(np.clip(C["dx"][i] * g.gs, -mx, mx))
-        y0 = my + float(np.clip(C["dy"][i] * g.gs, -my, my))
+        k = g.s * g.gs                                  # píxeles de 1080p -> píxeles de grilla
+        x0 = mx + float(np.clip(C["dx"][i] * k, -mx, mx))
+        y0 = my + float(np.clip(C["dy"][i] * k, -my, my))
         return roll, (x0, y0, x0 + bw, y0 + bh)
 
     def up(self, img, box):

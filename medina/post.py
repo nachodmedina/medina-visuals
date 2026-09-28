@@ -81,7 +81,6 @@ class Post:
         inside = np.clip((d - r * 0.985) / (0.02 * r + 0.8), 0, 1)[..., None]  # borde del negro
         sub = y[y0:y1, x0:x1]
         sub = (sub + np.minimum(g, 1) * (1 - sub)) * inside
-        y = y.copy() if y is self.acc else y
         y[y0:y1, x0:x1] = sub
         self.acc[y0:y1, x0:x1] *= inside                                         # la estela también cae adentro
         return y
@@ -106,7 +105,7 @@ class Post:
             self.acc = np.maximum(x, mem)
             x = np.maximum(x, mem * L["trail_g"])
         else:
-            self.acc = x
+            self.acc = x.copy()
         y = x
         # fantasma: lo encendido, desplazado hacia afuera, en el color de acento
         # (aberración dentro de la paleta)
