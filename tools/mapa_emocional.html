@@ -1,0 +1,434 @@
+<title>Mapa emocional MED1NA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;600&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Un solo mundo visual, a propósito: el negro del espacio de MED1NA. */
+  :root {
+    color-scheme: dark;
+    --bg: #0b0a12;
+    --surface: #12101b;
+    --surface-2: #191624;
+    --line: #2a2538;
+    --line-soft: #1f1b2b;
+    --text: #ece9f3;
+    --text-2: #a8a2b8;
+    --text-3: #857e97;
+    --violet: #a877f0;
+    --violet-deep: #7d37c8;
+    --energy: #e9e4f2;
+    --good: #7cc4a0;
+    --warn: #d9b26a;
+    --bad: #e0827a;
+    --display: "Unbounded", "Helvetica Neue", Arial, sans-serif;
+    --body: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--body); font-size: 15px; line-height: 1.55; }
+  .page { max-width: 1120px; margin: 0 auto; padding-inline: 20px; padding-block: 36px 64px; display: grid; gap: 56px; }
+  h1, h2, h3 { font-family: var(--display); font-weight: 600; text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+  h1 { font-size: clamp(28px, 5vw, 44px); line-height: 1.08; }
+  h2 { font-size: clamp(19px, 2.6vw, 24px); }
+  h3 { font-size: 17px; }
+  p { margin: 0; max-width: 68ch; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--violet); }
+  .lead { color: var(--text-2); font-size: 16.5px; }
+  .muted { color: var(--text-3); }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  header.top { display: grid; gap: 16px; }
+  .howto { display: grid; gap: 6px; color: var(--text-2); font-size: 14px; padding-left: 18px; margin: 0; max-width: 72ch; }
+  .status { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; width: fit-content; }
+  .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
+  .status[data-s="ok"]::before { background: var(--good); }
+  .status[data-s="saving"]::before { background: var(--warn); }
+  .status[data-s="err"]::before { background: var(--bad); }
+  nav.toc { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 14px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding-block: 12px; }
+  nav.toc a { color: var(--text-2); text-decoration: none; }
+  nav.toc a:hover, nav.toc a:focus-visible { color: var(--text); }
+  section { display: grid; gap: 18px; scroll-margin-top: 16px; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  th { font-weight: 500; color: var(--text-2); font-size: 13px; white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  .axis-name { font-weight: 600; }
+  .axis-def { color: var(--text-3); font-size: 13px; }
+  .bar { display: grid; grid-template-columns: 1fr 34px; align-items: center; gap: 8px; min-width: 120px; }
+  .bar i { display: block; height: 8px; border-radius: 4px; background: var(--line); position: relative; overflow: hidden; }
+  .bar i b { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--violet); }
+  .bar span { font-family: var(--mono); font-size: 12.5px; color: var(--text-2); text-align: right; font-variant-numeric: tabular-nums; }
+  .characters { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .character { border-left: 2px solid var(--violet-deep); padding: 2px 0 2px 12px; display: grid; gap: 2px; }
+  .character strong { font-family: var(--display); font-weight: 400; font-size: 14px; }
+  .character span { color: var(--text-2); font-size: 14px; }
+  .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 6px; border: 1px solid var(--line); }
+  .vote { display: flex; flex-wrap: wrap; gap: 6px; }
+  .vote button { font: inherit; font-size: 13px; color: var(--text-2); background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+  .vote button:hover { color: var(--text); border-color: var(--text-3); }
+  .vote button:focus-visible, .note:focus-visible, textarea:focus-visible, .plot:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
+  .vote button[aria-pressed="true"][data-v="coincide"], .vote button[aria-pressed="true"][data-v="sirve"] { color: var(--bg); background: var(--good); border-color: var(--good); }
+  .vote button[aria-pressed="true"][data-v="masomenos"], .vote button[aria-pressed="true"][data-v="cambiar"] { color: var(--bg); background: var(--warn); border-color: var(--warn); }
+  .vote button[aria-pressed="true"][data-v="no"], .vote button[aria-pressed="true"][data-v="sacar"] { color: var(--bg); background: var(--bad); border-color: var(--bad); }
+  .note, textarea { font: inherit; font-size: 14px; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; width: 100%; box-sizing: border-box; }
+  textarea { min-height: 84px; resize: vertical; }
+  .note::placeholder, textarea::placeholder { color: var(--text-3); }
+  .feedback-cell { display: grid; gap: 8px; min-width: 230px; }
+
+  /* track */
+  .track-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px; }
+  .facts { display: flex; flex-wrap: wrap; gap: 6px 16px; font-family: var(--mono); font-size: 13px; color: var(--text-2); }
+  .chart { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 16px 10px; display: grid; grid-template-columns: 112px 1fr; column-gap: 12px; row-gap: 6px; }
+  .labels { display: grid; grid-auto-rows: 14px; row-gap: 2px; font-size: 12px; color: var(--text-2); align-self: start; }
+  .labels span { line-height: 14px; white-space: nowrap; }
+  .plot { position: relative; outline: none; }
+  .plot svg { display: block; width: 100%; }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--text-2); align-items: center; }
+  .legend i { display: inline-block; width: 16px; height: 2px; vertical-align: 3px; margin-right: 6px; }
+  .ticks { position: relative; height: 18px; font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+  .ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+  .crosshair { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--text); opacity: 0.7; pointer-events: none; }
+  .band { position: absolute; top: 0; bottom: 0; background: rgba(168, 119, 240, 0.13); border-left: 1px solid var(--violet); border-right: 1px solid var(--violet); pointer-events: none; }
+  .tip { position: absolute; top: 4px; z-index: 3; min-width: 200px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; pointer-events: none; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); }
+  .tip .t { font-family: var(--mono); color: var(--text); margin-bottom: 6px; }
+  .tip .row { display: grid; grid-template-columns: 104px 1fr 30px; gap: 8px; align-items: center; color: var(--text-2); }
+  .tip .row i { height: 5px; border-radius: 3px; background: var(--line); position: relative; overflow: hidden; }
+  .tip .row i b { position: absolute; inset: 0 auto 0 0; background: var(--violet); border-radius: 3px; }
+  .tip .row span:last-child { font-family: var(--mono); text-align: right; color: var(--text); }
+  .tip hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
+  .sections { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  .sec { display: grid; grid-template-columns: 118px minmax(0, 1fr) minmax(230px, 300px); gap: 10px 18px; padding: 14px 16px; border-bottom: 1px solid var(--line-soft); align-items: start; }
+  .sec:last-child { border-bottom: 0; }
+  .sec .when { font-family: var(--mono); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+  .tags { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+  .tag { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
+  .reading { display: grid; gap: 4px; }
+  .reading .main { font-size: 15px; }
+  .reading .main b { font-weight: 600; color: var(--text); }
+  .reading .rest { font-size: 12.5px; color: var(--text-3); }
+  .ref { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  .ref div { display: grid; grid-template-columns: 150px 1fr 1fr; gap: 6px 18px; padding: 12px 16px; border-bottom: 1px solid var(--line-soft); font-size: 14px; }
+  .ref div:last-child { border-bottom: 0; }
+  .ref strong { font-family: var(--display); font-weight: 400; }
+  .ref span { color: var(--text-2); }
+  .ref .h { color: var(--text-3); font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.08em; }
+  footer { color: var(--text-3); font-size: 13px; border-top: 1px solid var(--line); padding-top: 14px; }
+  @media (max-width: 760px) {
+    .chart { grid-template-columns: 84px 1fr; padding: 12px 10px 8px; }
+    .labels { font-size: 10.5px; }
+    .sec { grid-template-columns: 1fr; }
+    .ref div { grid-template-columns: 1fr; }
+    .tip { min-width: 170px; }
+    .tip .row { grid-template-columns: 88px 1fr 28px; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .vote button { transition: background 120ms, color 120ms, border-color 120ms; }
+  }
+</style>
+
+<div class="page">
+  <header class="top">
+    <div class="eyebrow">Capa emocional · primera lectura automática</div>
+    <h1>Mapa emocional</h1>
+    <p class="lead">Esto es lo que el motor escucha en tus tres tracks: qué emoción transmite cada momento y qué sistema estelar le toca a cada uno. Marcá dónde coincide con lo que quisiste transmitir. Con tus respuestas calibro el motor.</p>
+    <ul class="howto">
+      <li>Cada fila del mapa es una emoción: cuanto más clara, más intensa. 1 es el momento más intenso de esa emoción en tus tres tracks.</li>
+      <li>Las líneas verticales marcan las liberaciones. Pasá el cursor (o usá las flechas) para ver cada segundo.</li>
+      <li>En cada sección: <b>coincide</b>, <b>más o menos</b> o <b>no</b>, y si querés, qué sentís vos ahí.</li>
+    </ul>
+    <div class="status" id="status" data-s="off" role="status">Conectando…</div>
+  </header>
+
+  <nav class="toc" aria-label="Secciones">
+    <a href="#sistemas">Sistemas estelares</a>
+    <a href="#varia">Qué varía</a>
+    <span id="toc-tracks" style="display:contents"></span>
+    <a href="#emociones">Cómo se expresa cada emoción</a>
+  </nav>
+
+  <section id="sistemas" aria-labelledby="h-sistemas">
+    <h2 id="h-sistemas">Los tres sistemas estelares</h2>
+    <p class="muted">El ADN de cada track, medido sobre el track entero. Estas medidas son comparables entre tracks: definen dónde está cada uno.</p>
+    <div class="characters" id="characters"></div>
+    <div class="table-wrap"><table id="dna"></table></div>
+  </section>
+
+  <section id="varia" aria-labelledby="h-varia">
+    <h2 id="h-varia">Qué varía en cada sistema estelar</h2>
+    <p class="muted">Mi propuesta de qué cambia entre tracks según su ADN, con el valor que le tocaría a cada uno. Todo dentro de la paleta negro, blanco y violeta. Decime qué te sirve, qué cambiarías y qué sacarías.</p>
+    <div class="table-wrap"><table id="system"></table></div>
+    <label for="idea-general" class="muted">¿Qué más te gustaría que varíe entre un track y otro?</label>
+    <textarea id="idea-general" placeholder="Por ejemplo: la velocidad de la cámara, el tipo de estrellas…"></textarea>
+  </section>
+
+  <div id="tracks" style="display:grid;gap:56px"></div>
+
+  <section id="emociones" aria-labelledby="h-emo">
+    <h2 id="h-emo">Cómo se expresa cada emoción</h2>
+    <p class="muted">La traducción que acordamos: qué se ve y cuándo aparece en la música.</p>
+    <div class="ref" id="ref"></div>
+  </section>
+
+  <footer>Primera lectura automática. Los valores se ajustan con tus respuestas; nada de esto cambia todavía el video.</footer>
+</div>
+
+<script>
+const DATA = __DATA__;
+const EMO = DATA.emotions;
+const EMO_LABEL = { incertidumbre: "Incertidumbre", miedo: "Miedo", esperanza: "Esperanza", enigma: "Enigma", soledad: "Soledad", fuerza: "Fuerza", vulnerabilidad: "Vulnerabilidad" };
+const AXES = {
+  caos: ["Caos ↔ orden", "cuánto cambia el track (0 = loop estable)"],
+  vacio: ["Vacío", "tiempo con el sub filtrado y pocas capas"],
+  voragine: ["Vorágine", "la atracción: tensiones largas y profundas"],
+  energia: ["Energía", "kicks y sub plenos"],
+  luz: ["Luz", "registro: grave y oscuro ↔ aireado"],
+  densidad: ["Densidad", "cuántos elementos suenan a la vez"],
+  hipnosis: ["Hipnosis", "repetición del loop"],
+  aspereza: ["Aspereza", "ruido y textura ↔ sonido limpio"],
+};
+const ADJ = {
+  caos: ["cambiante", "ordenado"], vacio: ["con mucho vacío", "lleno"], voragine: ["con mucha atracción", "con poca atracción"],
+  energia: ["enérgico", "contenido"], luz: ["luminoso", "oscuro"], densidad: ["denso", "despojado"],
+  hipnosis: ["hipnótico", "poco repetitivo"], aspereza: ["áspero", "limpio"],
+};
+const REF = [
+  ["incertidumbre", "Las cosas aparecen y se disuelven antes de verse enteras; la cámara deriva sin rumbo.", "Tramos sin pulso claro, armonía indefinida, cambios inesperados."],
+  ["miedo", "Lo inmenso que amenaza: el agujero crece y todo cae; algo tapa las estrellas.", "Tensión larga, graves oscuros, disonancia, ruido que sube."],
+  ["esperanza", "La luz: un resplandor que nace lejos, el disco que se enciende, un movimiento que sube.", "Liberaciones tras una tensión, brillo que asciende, un elemento tonal que entra."],
+  ["enigma", "Señales de lo desconocido: el pulsar, patrones demasiado regulares, simetrías que van y vienen.", "Repetición hipnótica, secuencias, armonía ambigua."],
+  ["soledad", "Un solo objeto en un vacío inmenso; cámara lejos y quieta.", "Pocas capas, poca energía: intros, outros, breaks."],
+  ["fuerza", "Masa y gravedad: el drop, la onda, los jets, todo se alinea.", "Kick y sub plenos, máxima energía."],
+  ["vulnerabilidad", "Lo frágil cerca del horizonte: estelas que se rompen, estrellas que se apagan.", "Quietud después de la intensidad, un elemento agudo solo."],
+];
+
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const fmt = (v) => v.toFixed(2);
+const SVGNS = "http://www.w3.org/2000/svg";
+const el = (tag, attrs = {}, parent) => { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
+
+// escala secuencial de un solo tono (violeta), oscuro -> claro: más claro = más intenso
+const STOPS = [[0, [18, 15, 28]], [0.25, [42, 29, 69]], [0.5, [77, 45, 134]], [0.75, [138, 86, 214]], [1, [226, 210, 255]]];
+function heat(v) {
+  v = Math.max(0, Math.min(1, v));
+  for (let i = 1; i < STOPS.length; i++) {
+    if (v <= STOPS[i][0]) {
+      const [a, ca] = STOPS[i - 1], [b, cb] = STOPS[i], t = (v - a) / (b - a);
+      return `rgb(${ca.map((c, k) => Math.round(c + (cb[k] - c) * t)).join(",")})`;
+    }
+  }
+  return "rgb(226,210,255)";
+}
+
+// ---------------------------------------------------------------- ADN
+function character(ax) {
+  const hi = Object.entries(ax).filter(([, v]) => v >= 0.6).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k]) => ADJ[k][0]);
+  const lo = Object.entries(ax).filter(([, v]) => v <= 0.3).sort((a, b) => a[1] - b[1]).slice(0, 3).map(([k]) => ADJ[k][1]);
+  const join = (xs) => xs.length > 1 ? xs.slice(0, -1).join(", ") + " y " + xs[xs.length - 1] : xs[0] || "";
+  const first = join(hi); const second = join(lo);
+  return (first ? first.charAt(0).toUpperCase() + first.slice(1) : "") + (first && second ? "; " : "") + (second || "");
+}
+function renderDNA() {
+  $("#characters").innerHTML = DATA.tracks.map((t) => `<div class="character"><strong>${esc(t.name)}</strong><span>${esc(character(t.axes))}</span></div>`).join("");
+  const head = `<thead><tr><th>Eje</th>${DATA.tracks.map((t) => `<th>${esc(t.name)}</th>`).join("")}</tr></thead>`;
+  const rows = DATA.axes.map((a) => `<tr><td><div class="axis-name">${AXES[a][0]}</div><div class="axis-def">${AXES[a][1]}</div></td>${DATA.tracks.map((t) => `<td><div class="bar" title="${AXES[a][0]}: ${fmt(t.axes[a])}"><i><b style="width:${(t.axes[a] * 100).toFixed(0)}%"></b></i><span>${fmt(t.axes[a])}</span></div></td>`).join("")}</tr>`).join("");
+  $("#dna").innerHTML = head + `<tbody>${rows}</tbody>`;
+}
+
+// ------------------------------------------------------- sistema estelar
+function voteButtons(id, kind) {
+  const opts = kind === "sec" ? [["coincide", "✓", "Coincide"], ["masomenos", "~", "Más o menos"], ["no", "✕", "No"]]
+                              : [["sirve", "✓", "Me sirve"], ["cambiar", "~", "Cambiarlo"], ["sacar", "✕", "Sacarlo"]];
+  return `<div class="vote" data-id="${id}">${opts.map(([v, icon, label]) => `<button type="button" data-v="${v}" aria-pressed="false"><span aria-hidden="true">${icon}</span>${label}</button>`).join("")}</div>`;
+}
+function renderSystem() {
+  const params = DATA.tracks[0].system;
+  const head = `<thead><tr><th>Parámetro</th><th>Lo define</th>${DATA.tracks.map((t) => `<th>${esc(t.name)}</th>`).join("")}<th>Qué expresa</th><th>Tu opinión</th></tr></thead>`;
+  const rows = params.map((p, i) => {
+    const vals = DATA.tracks.map((t) => {
+      const v = t.system[i].valor;
+      return `<td class="mono">${v.startsWith("#") ? `<span class="swatch" style="background:${v}"></span>` : ""}${esc(v)}</td>`;
+    }).join("");
+    const id = `sis-${i}`;
+    return `<tr><td class="axis-name">${esc(p.parametro)}</td><td class="axis-def">${esc(p.eje)}</td>${vals}<td class="axis-def">${esc(p.expresa)}</td><td><div class="feedback-cell">${voteButtons(id, "sis")}<input class="note" id="note-${id}" data-id="${id}" placeholder="Nota (opcional)" aria-label="Nota sobre ${esc(p.parametro)}"></div></td></tr>`;
+  }).join("");
+  $("#system").innerHTML = head + `<tbody>${rows}</tbody>`;
+}
+
+// ------------------------------------------------------------- tracks
+function renderTrack(t, ti) {
+  const N = t.curves.fuerza.length;
+  const sec = document.createElement("section");
+  sec.id = t.key;
+  sec.setAttribute("aria-labelledby", `h-${t.key}`);
+  sec.innerHTML = `
+    <div class="track-head"><h2 id="h-${t.key}">${esc(t.name)}</h2>
+      <div class="facts"><span>${t.bpm.toFixed(2)} BPM</span><span>${esc(t.tono)} · ${esc(t.camelot)}</span><span>${mmss(t.dur)}</span><span>${t.releases.length} liberaciones</span></div></div>
+    <div class="chart">
+      <div class="labels" aria-hidden="true">${EMO.map((e) => `<span>${EMO_LABEL[e]}</span>`).join("")}</div>
+      <div class="plot" tabindex="0" role="img" aria-label="Mapa emocional de ${esc(t.name)}: usá las flechas para recorrerlo">
+        <div class="heat-wrap" style="position:relative"></div>
+      </div>
+      <div class="legend" style="grid-column:2"><span><i style="background:var(--energy)"></i>Energía</span><span><i style="background:var(--violet)"></i>Tensión</span><span class="muted">| línea vertical = liberación</span></div>
+      <div></div>
+      <div class="plot-lines" style="position:relative"></div>
+      <div></div>
+      <div class="ticks"></div>
+    </div>
+    <div class="sections"></div>`;
+  $("#tracks").appendChild(sec);
+  $("#toc-tracks").insertAdjacentHTML("beforeend", `<a href="#${t.key}">${esc(t.name)}</a>`);
+
+  // mapa de calor: una fila por emoción, un rectángulo por segundo
+  const rowH = 14, gap = 2, H = EMO.length * (rowH + gap) - gap;
+  const heatWrap = $(".heat-wrap", sec);
+  const svg = el("svg", { viewBox: `0 0 ${N} ${H}`, preserveAspectRatio: "none", height: H, "shape-rendering": "crispEdges" }, heatWrap);
+  EMO.forEach((e, r) => {
+    const vals = t.curves[e];
+    for (let i = 0; i < N; i++) el("rect", { x: i, y: r * (rowH + gap), width: 1.04, height: rowH, fill: heat(vals[i]) }, svg);
+  });
+  // líneas: energía (con área tenue) y tensión, escala 0..1
+  const LH = 64;
+  const lw = $(".plot-lines", sec);
+  const ls = el("svg", { viewBox: `0 0 ${N} ${LH}`, preserveAspectRatio: "none", height: LH }, lw);
+  el("line", { x1: 0, x2: N, y1: LH - 1, y2: LH - 1, stroke: "#2a2538", "stroke-width": 1, "vector-effect": "non-scaling-stroke" }, ls);
+  const path = (vals) => vals.map((v, i) => `${i ? "L" : "M"}${i + 0.5},${(LH - 3 - v * (LH - 8)).toFixed(2)}`).join("");
+  el("path", { d: path(t.curves.energia) + `L${N - 0.5},${LH - 1}L0.5,${LH - 1}Z`, fill: "rgba(233,228,242,0.07)", stroke: "none" }, ls);
+  el("path", { d: path(t.curves.energia), fill: "none", stroke: "var(--energy)", "stroke-width": 2, "vector-effect": "non-scaling-stroke", "stroke-linejoin": "round" }, ls);
+  el("path", { d: path(t.curves.tension), fill: "none", stroke: "var(--violet)", "stroke-width": 2, "vector-effect": "non-scaling-stroke", "stroke-linejoin": "round" }, ls);
+  // secciones (tenues) y liberaciones
+  for (const s of t.sections.slice(1)) {
+    for (const [g, h] of [[svg, H], [ls, LH]]) el("line", { x1: s.start, x2: s.start, y1: 0, y2: h, stroke: "rgba(236,233,243,0.10)", "stroke-width": 1, "vector-effect": "non-scaling-stroke" }, g);
+  }
+  for (const r of t.releases) {
+    for (const [g, h] of [[svg, H], [ls, LH]]) el("line", { x1: r, x2: r, y1: 0, y2: h, stroke: "#ece9f3", "stroke-width": 1, "stroke-opacity": 0.75, "vector-effect": "non-scaling-stroke" }, g);
+  }
+  // eje de tiempo
+  const ticks = $(".ticks", sec);
+  const step = t.dur > 240 ? 60 : 30;
+  for (let s = 0; s <= t.dur; s += step) ticks.insertAdjacentHTML("beforeend", `<span style="left:${(s / N * 100).toFixed(2)}%">${mmss(s)}</span>`);
+
+  // cursor, banda de sección y tooltip
+  const plot = $(".plot", sec);
+  const cross = document.createElement("div"); cross.className = "crosshair"; cross.hidden = true;
+  const band = document.createElement("div"); band.className = "band"; band.hidden = true;
+  const tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true;
+  heatWrap.append(band, cross, tip);
+  const crossL = document.createElement("div"); crossL.className = "crosshair"; crossL.hidden = true;
+  const bandL = document.createElement("div"); bandL.className = "band"; bandL.hidden = true;
+  lw.append(bandL, crossL);
+  let cur = -1;
+  function show(i) {
+    i = Math.max(0, Math.min(N - 1, i)); cur = i;
+    const pct = ((i + 0.5) / N * 100).toFixed(3) + "%";
+    cross.style.left = crossL.style.left = pct; cross.hidden = crossL.hidden = false;
+    const rows = EMO.map((e) => { const v = t.curves[e][i]; return `<div class="row"><span>${EMO_LABEL[e]}</span><i><b style="width:${(v * 100).toFixed(0)}%"></b></i><span>${fmt(v)}</span></div>`; }).join("");
+    const rel = t.releases.some((r) => Math.abs(r - i) < 1) ? " · liberación" : "";
+    tip.innerHTML = `<div class="t">${mmss(i)}${rel}</div>${rows}<hr><div class="row"><span>Energía</span><i><b style="width:${(t.curves.energia[i] * 100).toFixed(0)}%;background:var(--energy)"></b></i><span>${fmt(t.curves.energia[i])}</span></div><div class="row"><span>Tensión</span><i><b style="width:${(t.curves.tension[i] * 100).toFixed(0)}%"></b></i><span>${fmt(t.curves.tension[i])}</span></div>`;
+    tip.hidden = false;
+    const w = plot.clientWidth, x = (i + 0.5) / N * w, tw = tip.offsetWidth;
+    tip.style.left = (x + 14 + tw > w ? Math.max(0, x - 14 - tw) : x + 14) + "px";
+  }
+  function hide() { cross.hidden = crossL.hidden = tip.hidden = true; cur = -1; }
+  for (const target of [plot, lw]) {
+    target.addEventListener("pointermove", (ev) => { const r = plot.getBoundingClientRect(); show(Math.floor((ev.clientX - r.left) / r.width * N)); });
+    target.addEventListener("pointerleave", hide);
+  }
+  plot.addEventListener("keydown", (ev) => {
+    if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") { ev.preventDefault(); show((cur < 0 ? 0 : cur) + (ev.key === "ArrowRight" ? 5 : -5)); }
+    if (ev.key === "Escape") hide();
+  });
+  plot.addEventListener("blur", hide);
+  const setBand = (s) => {
+    if (!s) { band.hidden = bandL.hidden = true; return; }
+    const l = (s.start / N * 100).toFixed(3) + "%", w = ((s.end - s.start) / N * 100).toFixed(3) + "%";
+    band.style.left = bandL.style.left = l; band.style.width = bandL.style.width = w; band.hidden = bandL.hidden = false;
+  };
+
+  // secciones con la lectura del motor y tu respuesta
+  const list = $(".sections", sec);
+  t.sections.forEach((s, si) => {
+    const id = `sec-${t.key}-${si}`;
+    const main = s.principales.map((e) => `<b>${EMO_LABEL[e].toLowerCase()}</b> <span class="mono muted">${fmt(s.valores[e])}</span>`).join(" + ");
+    const rest = EMO.filter((e) => !s.principales.includes(e)).sort((a, b) => s.valores[b] - s.valores[a]).slice(0, 3).map((e) => `${EMO_LABEL[e].toLowerCase()} ${fmt(s.valores[e])}`).join(" · ");
+    const tags = [s.tension ? "tensión" : "", s.liberacion ? "liberación" : ""].filter(Boolean).map((x) => `<span class="tag">${x}</span>`).join("");
+    const row = document.createElement("div");
+    row.className = "sec";
+    row.innerHTML = `<div><div class="when">${mmss(s.start)}–${mmss(s.end)}</div><div class="tags">${tags}</div></div>
+      <div class="reading"><div class="main">El motor lee: ${main}</div><div class="rest">también: ${rest}</div></div>
+      <div class="feedback-cell">${voteButtons(id, "sec")}<input class="note" id="note-${id}" data-id="${id}" placeholder="¿Qué sentís vos acá? (opcional)" aria-label="Qué sentís en ${mmss(s.start)}–${mmss(s.end)}"></div>`;
+    row.addEventListener("pointerenter", () => setBand(s));
+    row.addEventListener("pointerleave", () => setBand(null));
+    row.addEventListener("focusin", () => setBand(s));
+    row.addEventListener("focusout", () => setBand(null));
+    list.appendChild(row);
+    META[id] = { tipo: "seccion", track: t.name, inicio: s.start, fin: s.end, lectura: s.principales };
+  });
+}
+
+function renderRef() {
+  $("#ref").innerHTML = `<div><span class="h">Emoción</span><span class="h">Cómo se ve</span><span class="h">Cuándo aparece</span></div>` +
+    REF.map(([e, see, when]) => `<div><strong>${EMO_LABEL[e]}</strong><span>${see}</span><span>${when}</span></div>`).join("");
+}
+
+// -------------------------------------------------- respuestas guardadas
+const META = {};
+const STATE = {};
+let db = null;
+const chains = {};
+const timers = {};
+function setStatus(s, text) { const st = $("#status"); st.dataset.s = s; st.textContent = text; }
+function body(id) {
+  const st = STATE[id] || {};
+  return { ...(META[id] || {}), veredicto: st.veredicto || null, nota: st.nota || "", actualizado: new Date().toISOString() };
+}
+function save(id) {
+  if (!db) return;
+  setStatus("saving", "Guardando…");
+  chains[id] = (chains[id] || Promise.resolve())
+    .then(() => db.doc("respuestas/" + id).set(body(id)))
+    .then(() => setStatus("ok", "Guardado"))
+    .catch((e) => setStatus("err", e && e.code === "quota_exceeded" ? "No hay más lugar para respuestas" : "No se pudo guardar: probá de nuevo en un momento"));
+}
+function applyDoc(id, d) {
+  STATE[id] = { veredicto: d.veredicto || null, nota: d.nota || "" };
+  const v = document.querySelector(`.vote[data-id="${id}"]`);
+  if (v) v.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === d.veredicto)));
+  const n = document.getElementById(id === "idea-general" ? "idea-general" : "note-" + id);
+  if (n && document.activeElement !== n) n.value = d.nota || "";
+}
+document.addEventListener("click", (ev) => {
+  const b = ev.target.closest(".vote button");
+  if (!b) return;
+  const id = b.parentElement.dataset.id;
+  const st = STATE[id] || (STATE[id] = {});
+  st.veredicto = st.veredicto === b.dataset.v ? null : b.dataset.v;
+  b.parentElement.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === st.veredicto)));
+  save(id);
+});
+document.addEventListener("input", (ev) => {
+  const n = ev.target;
+  const id = n.id === "idea-general" ? "idea-general" : n.dataset && n.dataset.id;
+  if (!id) return;
+  (STATE[id] || (STATE[id] = {})).nota = n.value;
+  clearTimeout(timers[id]);
+  timers[id] = setTimeout(() => save(id), 900);
+});
+
+renderDNA();
+renderSystem();
+DATA.tracks.forEach(renderTrack);
+renderRef();
+META["idea-general"] = { tipo: "idea" };
+DATA.tracks[0].system.forEach((p, i) => { META[`sis-${i}`] = { tipo: "sistema", parametro: p.parametro }; });
+
+(async () => {
+  try { db = window.claude && window.claude.use ? await window.claude.use("db") : null; } catch (e) { db = null; }
+  if (!db) { setStatus("off", "En esta vista las respuestas no se guardan"); return; }
+  setStatus("ok", "Tus respuestas se guardan solas");
+  db.collection("respuestas").onSnapshot(
+    (snap) => { for (const d of snap.docs) if (d.exists) applyDoc(d.id, d.data()); },
+    () => setStatus("err", "No pude leer las respuestas guardadas"),
+  );
+})();
+</script>
