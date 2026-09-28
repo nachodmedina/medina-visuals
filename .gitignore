@@ -1,0 +1,19 @@
+# entorno
+.venv/
+__pycache__/
+*.pyc
+
+# audio y renders: quedan solo en la máquina local
+tracks/
+renders/
+*.wav
+*.aif
+*.aiff
+*.flac
+*.mp3
+*.asd
+*.mp4
+*.mov
+
+# macOS
+.DS_Store

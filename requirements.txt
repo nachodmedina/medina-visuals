@@ -1,0 +1,9 @@
+# brutal_viz.py (motor de visuales). Además necesita ffmpeg en el PATH.
+numpy>=2.0
+scipy>=1.12
+pillow>=10.0
+scikit-learn>=1.4
+
+# master.py (master técnico), opcional:
+# pyloudnorm
+# pedalboard
