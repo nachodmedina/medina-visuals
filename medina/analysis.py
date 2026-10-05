@@ -2,8 +2,8 @@
 
     kicks        beats con energía en 35-130 Hz (tempo + programación dinámica)
     sub_on       sub 25-60 Hz relativo al sub pleno (un corte parcial también es tensión)
-    rise         liberaciones: vuelve el sub o vuelve el kick tras >= 8 s, anclada al primer
-                 kick que ya trae el sub entero
+    rise         liberaciones: vuelve el sub o vuelve el kick tras >= 8 s (y se queda: un golpe
+                 suelto no cuenta), anclada al primer kick que ya trae el sub entero
     tension      0 -> 1 dentro de cada tramo filtrado; termina en la liberación
     breath       el último beat antes de cada liberación (respiración a negro)
     chaos        curva lenta de agudos (el track se abre)
@@ -227,7 +227,8 @@ def analyze(y, fps, bpm_range=(100, 165)):
             j -= 1
         rise[ons[j]] = True                        # anclado al primer kick con el sub entero
     for i, o in enumerate(ons):
-        if i and (o - ons[i - 1]) / fps >= 8.0:
+        # vuelve el kick tras una bajada larga, y se queda: un golpe suelto en el filtrado no es un drop
+        if i and (o - ons[i - 1]) / fps >= 8.0 and i + 2 < len(ons) and (ons[i + 2] - o) / fps < 2.0:
             rise[o] = True
     rise[:int(2 * fps)] = False
     # vuelve el sub y vuelve el kick casi juntos = una sola liberación (queda la primera)

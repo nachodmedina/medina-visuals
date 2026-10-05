@@ -13,6 +13,9 @@ VALIDATED = {
     "Untitled6 12-Audio.wav":   dict(bpm=138.00, rises=[1670, 2088, 3340, 4996]),
     "Untitled 9-Audio.wav":     dict(bpm=142.02, rises=[1622, 3649, 6908, 8111]),
     "Untitled999 12-Audio.wav": dict(bpm=136.00, rises=[423, 1694, 2118, 2541, 2965, 4658, 5082, 5930]),
+    # 0:16 y 4:34 son golpes sueltos de kick dentro del filtrado: no son liberaciones
+    "Untitled13 14-Audio.wav":  dict(bpm=138.00, rises=[836, 1253, 1827, 2088, 2505, 2922, 3340, 5009, 5844,
+                                                        6261, 7096, 8349]),
 }
 
 
