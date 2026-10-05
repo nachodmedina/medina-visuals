@@ -33,7 +33,20 @@ def synth(tmp_path_factory):
 
 @pytest.fixture(scope="session")
 def score(synth):
-    return build_score(synth["A"], "viaje", FPS, SEED)
+    """El motor sin ADN (sistema neutro): contra esta partitura se comparan los cuadros de referencia."""
+    return build_score(synth["A"], "viaje", FPS, SEED, system="neutro")
+
+
+@pytest.fixture(scope="session")
+def adn_score(synth):
+    """El sistema estelar que sale del ADN del sintético."""
+    return build_score(synth["A"], "viaje", FPS, SEED, system="adn", bpm=synth["bpm"])
+
+
+@pytest.fixture(scope="session", params=["neutro", "adn"])
+def any_score(request):
+    """Para lo que tiene que valer con cualquier sistema estelar."""
+    return request.getfixturevalue("score" if request.param == "neutro" else "adn_score")
 
 
 def small_renderer(score, look="luz"):

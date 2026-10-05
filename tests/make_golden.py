@@ -16,7 +16,7 @@ from tests.test_render import GOLDEN_DIR, golden_frames
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         A = listen_synth(tmp)["A"]
-    frames = golden_frames(build_score(A, "viaje", FPS, SEED))
+    frames = golden_frames(build_score(A, "viaje", FPS, SEED, system="neutro"))
     os.makedirs(GOLDEN_DIR, exist_ok=True)
     for name, f in frames.items():
         Image.fromarray(f).save(os.path.join(GOLDEN_DIR, f"{name}.png"))

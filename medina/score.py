@@ -20,8 +20,9 @@ import numpy as np
 from .audio import envelope
 from .noise import hash32
 from .presets import ACCENTS, PALETTES, PRESETS
+from .system import StarSystem
 
-_ST_KEYS = ("ph", "rot", "mut", "wt", "tw", "rh", "glow")
+_ST_KEYS = ("ph", "rot", "mut", "wt", "tw", "rh", "glow", "tr")
 
 
 class FrameState:
@@ -32,8 +33,13 @@ class FrameState:
 
 
 class Score:
-    def __init__(self, fps, seed, preset, analysis, frames, accent, camera):
+    def __init__(self, fps, seed, preset, analysis, frames, accent, camera, system=None, emotions=None, dna=None,
+                 warp=None):
         self.fps, self.seed, self.preset = fps, seed, preset
+        self.warp = warp                               # velocidad de la luz por cuadro (0..1), o None
+        self.system = system or StarSystem.neutral()   # el sistema estelar del track
+        self.dna = dna                                 # los ejes del ADN de los que salió, o None (neutro)
+        self.emotions = emotions                       # curvas de la capa emocional, o None
         self.analysis = analysis      # señales del track (analysis.analyze)
         self.frames = frames          # list[FrameState], uno por cuadro
         self.accent = accent          # (n, 3) uint8
@@ -47,9 +53,9 @@ class Score:
 class _Motion:
     """Movimiento compartido por todos los estilos. Se acumula cuadro a cuadro."""
 
-    def __init__(self, A, fps, seed):
-        self.A, self.fps, self.seed = A, fps, seed
-        self.st = dict(ph=0.0, rot=0.0, kc=0, ch=-1, rel=0, mut=0, tw=0.35, rh=0.08, glow=0.0)
+    def __init__(self, A, fps, seed, system, warp=None):
+        self.A, self.fps, self.seed, self.sys, self.warp = A, fps, seed, system, warp
+        self.st = dict(ph=0.0, rot=0.0, kc=0, ch=-1, rel=0, mut=0, tw=0.35, rh=0.08, glow=0.0, tr=0.0)
 
     def step(self, i, kc):
         A, fps, st = self.A, self.fps, self.st
@@ -59,6 +65,9 @@ class _Motion:
                  silent=bool(A["silent"][i]) or bool(A["breath"][i]), chapter=int(A["chapter"][i]))
         c["hat"] = float(A["hat"][i])
         c["hat_n"] = int(A["hat_n"][i])
+        w = 0.0
+        if self.warp is not None:
+            w = c["warp"] = float(self.warp[i])
         fd = float(A["fade"][i])
         if fd > 0.05:                           # la desaparición final se lee como tensión
             c["closed"] = True
@@ -78,6 +87,9 @@ class _Motion:
         if st["rel"] > 0:
             speed += 6.0 * st["rel"] / (0.5 * fps)
             st["rel"] -= 1
+        if w > 0:                               # velocidad de la luz: el túnel se acelera
+            speed *= 1 + 1.5 * w
+            st["tr"] += 0.9 * w / fps           # y se recorre el espacio entre las estrellas
         # agujero negro: en la tensión todo cae hacia el centro; al liberar, sale disparado
         flow = -1.0 if c["closed"] and st["rel"] <= 0 else 1.0
         st["ph"] += flow * speed / fps
@@ -90,11 +102,11 @@ class _Motion:
                 st["wt"] = np.clip(np.exp(st["g"].normal(0, spread, 32)) * 0.7, 0.12, 2.6).astype(np.float32)
                 st["mut"] += 1
         st["kc"] = kc
-        st["rot"] += (0.05 + 0.35 * c["mid"] + 0.3 * c["chaos"]) / fps
+        st["rot"] += (0.05 + 0.35 * c["mid"] + 0.3 * c["chaos"]) / fps * self.sys.orbit
         # torsión del remolino y tamaño del horizonte: siguen a la tensión (suavizados)
         tens_c = c["tens"] if c["closed"] else 0.0
         st["tw"] += (0.35 + 2.2 * tens_c - st["tw"]) * 0.15
-        st["rh"] += (0.07 + 0.10 * tens_c + 0.03 * c["low"] - st["rh"]) * 0.25
+        st["rh"] += (self.sys.hole + 0.10 * tens_c + 0.03 * c["low"] - st["rh"]) * 0.25
         c["nk"] = nk
         return st, c
 
@@ -103,8 +115,8 @@ class _Journey:
     """El viaje: elige el estilo según la historia del track. Capítulo -> mundo; dentro del
     mundo sube de a un escalón por liberación. Solo cambia en liberaciones o capítulos."""
 
-    def __init__(self, A, fps, preset):
-        self.A, self.fps = A, fps
+    def __init__(self, A, fps, preset, fast=False):
+        self.A, self.fps, self.fast = A, fps, fast
         self.worlds = PRESETS[preset]["worlds"]
         self.n_ch = int(A["chapter"].max()) + 1
         self.cur, self.ch, self.n_rise, self.k, self.ch_i, self.t_change = None, -1, 0, 0, 0, 0
@@ -136,7 +148,7 @@ class _Journey:
                 else:
                     target = 0 if chaos < 0.35 else (1 if chaos < 0.75 else 2)
                 stale = (i - self.t_change) > 60 * self.fps
-                if A["rise"][i] and (target > self.k or stale):
+                if A["rise"][i] and (target > self.k or stale or self.fast):
                     self.k += 1
                 k = min(self.k, len(world) - 1)
             else:
@@ -149,10 +161,14 @@ class _Journey:
         return self.cur
 
 
-def _accents(A, palette):
-    """Color de acento de cada cuadro según la paleta."""
+def _accents(A, palette, violet=None):
+    """Color de acento de cada cuadro según la paleta (el violeta, con el tono del sistema)."""
     n = A["n"]
     pal = PALETTES[palette]
+    if violet is not None:
+        base = np.array(PALETTES["violeta"], np.uint8)
+        swap = lambda c: np.array(violet, np.uint8) if np.array_equal(c, base) else c
+        pal = [swap(c) for c in pal] if isinstance(pal, list) else (swap(pal) if pal is not None else None)
     if isinstance(pal, list):                     # alterna por kick dentro de cada liberación
         m = A["rel_kick"].astype(np.int64)
         return np.array(pal, np.uint8)[np.where(m >= 0, m % len(pal), 0)]
@@ -161,7 +177,7 @@ def _accents(A, palette):
     return np.array(ACCENTS, np.uint8)[A["accent"].astype(np.int64)]
 
 
-def _camera(A, fps, seed):
+def _camera(A, fps, seed, shake=1.0):
     """Cámara, función pura del cuadro.
     zoom: empuja hacia adentro con la tensión (sobre todo al final) y suelta de golpe en la
     liberación, con un rebote; en lo abierto respira lento. kick: golpe de zoom + empujón.
@@ -199,20 +215,64 @@ def _camera(A, fps, seed):
     on = np.where(A["strength"] > 0, idx, -1)
     last = np.maximum.accumulate(on)
     ang = hash32(np.maximum(last, 0), np.zeros(n, np.int64) + 31, seed) * 2 * np.pi
-    sh = 15.0 * kamp                       # en píxeles de 1080p (el render lo escala)
+    sh = 15.0 * kamp * shake               # en píxeles de 1080p (el render lo escala)
     dx, dy = sh * np.cos(ang), sh * np.sin(ang)
     # nervio: temblor chico en los hats al final de la tensión
     nerv = np.clip((T - 0.35) / 0.65, 0, 1) * (T > 0)
     hang = hash32(A["hat_n"].astype(np.int64), np.zeros(n, np.int64) + 57, seed) * 2 * np.pi
-    hs_ = 5.0 * A["hat"] * nerv
+    hs_ = 5.0 * A["hat"] * nerv * shake
     dx, dy = dx + hs_ * np.cos(hang), dy + hs_ * np.sin(hang)
     return dict(zoom=zoom, roll=roll, dx=dx, dy=dy)
 
 
-def build_score(A, preset="viaje", fps=30, seed=0, camera=True, palette="violeta"):
-    """Análisis -> partitura (independiente de la resolución de salida)."""
-    journey = _Journey(A, fps, preset) if PRESETS[preset]["style"] == "journey" else None
-    motion = _Motion(A, fps, seed)
+def _warp(A, E, fps, bpm, amount):
+    """Velocidad de la luz, 0..1 por cuadro. Es el escape del agujero: en cada liberación el
+    espacio salta a la velocidad de la luz (más alto cuanto más larga fue la tensión, y solo si
+    lo que sigue tiene fuerza), se sostiene un compás y se asienta en un crucero suave mientras
+    dura la fuerza. En la tensión (la atracción) se frena del todo."""
+    n = A["n"]
+    F = np.asarray(E["fuerza"], np.float64)
+    closed = ~A["sub_on"].astype(bool) | A["break_zone"].astype(bool) | (A["fade"] > 0.05)
+    w = 0.28 * np.clip((F - 0.5) / 0.4, 0, 1)                 # crucero
+    bar = 4 * 60 / bpm
+    t_all = np.arange(n) / fps
+    for r in np.where(A["rise"])[0]:
+        j = r - 1
+        while j > 0 and A["tension"][j] > 0:
+            j -= 1
+        amp = float(np.clip(0.55 + 0.45 * (r - j) / (16 * fps), 0.55, 1.0))
+        amp *= float(np.clip(F[r:r + 2 * fps].mean() / 0.6, 0.3, 1.0))
+        t = t_all[r:] - t_all[r]
+        env = np.where(t < bar, np.clip(t / 0.3, 0, 1), np.exp(-(t - bar) / 3.0))
+        w[r:] = np.maximum(w[r:], amp * env)
+    w[closed] = 0.0
+    out, v = np.empty(n), 0.0
+    up, dn = 1 - np.exp(-1 / (0.15 * fps)), 1 - np.exp(-1 / (0.8 * fps))   # entra rápido, sale lento
+    for i in range(n):
+        v += (w[i] - v) * (up if w[i] > v else dn)
+        out[i] = v
+    out[out < 1e-3] = 0.0                                     # la cola del suavizado: quieto de verdad
+    return np.clip(out * amount, 0, 1).astype(np.float32)
+
+
+def build_score(A, preset="viaje", fps=30, seed=0, camera=True, palette="violeta", system="adn", bpm=None,
+                warp=True):
+    """Análisis -> partitura (independiente de la resolución de salida).
+    system: "adn" = el sistema estelar sale del ADN del track; "neutro" = el motor sin ADN.
+    warp: False apaga la velocidad de la luz (el neutro nunca la tiene)."""
+    emo = axes = None
+    if system == "adn":
+        from .emotion import emotional_map
+        if bpm is None:                            # sin tempo a mano: el de la grilla de kicks
+            bpm = 60 * fps / float(np.median(np.diff(A["onsets"]))) if len(A["onsets"]) > 1 else 128.0
+        M = emotional_map(A, fps, bpm)
+        axes, emo = M["axes"], M["emotions"]
+        sysm = StarSystem.from_axes(axes)
+    else:
+        sysm = StarSystem.neutral()
+    wv = _warp(A, emo, fps, bpm, sysm.warp) if (warp and sysm.warp > 0 and emo is not None) else None
+    journey = _Journey(A, fps, preset, sysm.fast_journey) if PRESETS[preset]["style"] == "journey" else None
+    motion = _Motion(A, fps, seed, sysm, wv)
     onset_set = set(A["onsets"].tolist())
     frames = []
     kc = 0
@@ -222,5 +282,6 @@ def build_score(A, preset="viaje", fps=30, seed=0, camera=True, palette="violeta
         name = journey.update(i) if journey is not None else preset
         st, c = motion.step(i, kc)
         frames.append(FrameState(name, {k: st[k] for k in _ST_KEYS}, c, kc))
-    return Score(fps, seed, preset, A, frames, _accents(A, palette),
-                 _camera(A, fps, seed) if camera else None)
+    violet = None if sysm.violet == StarSystem.neutral().violet else sysm.violet
+    return Score(fps, seed, preset, A, frames, _accents(A, palette, violet),
+                 _camera(A, fps, seed, sysm.shake) if camera else None, sysm, emo, axes, wv)

@@ -30,6 +30,10 @@ def parse_args(argv=None):
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--ss", type=int, default=2,
                     help="supersampling (2 = bordes limpios; 1 = píxel duro a media resolución)")
+    ap.add_argument("--sistema", default="adn", choices=["adn", "neutro"],
+                    help="adn = cada track tiene su sistema estelar según su ADN; neutro = el motor sin ADN")
+    ap.add_argument("--sin-warp", dest="warp", action="store_false",
+                    help="sin velocidad de la luz (el salto al escapar del agujero en las liberaciones)")
     ap.add_argument("--no-cam", dest="cam", action="store_false",
                     help="sin movimiento de cámara (zoom, giro, golpe en el kick)")
     ap.add_argument("--chunk", default=None,
@@ -75,6 +79,7 @@ def listen(a, fps):
         lo_b, hi_b = bpm - 1, bpm + 1
     else:
         lo_b, hi_b = (float(v) for v in a.bpm.split("-"))
+        bpm = (lo_b + hi_b) / 2
     if a.seed is None:
         a.seed = seed_from_audio(y)
     A = analyze(y, fps, (lo_b - 2, hi_b + 2))
@@ -86,7 +91,15 @@ def listen(a, fps):
     print(f"  capítulos: {int(A['chapter'].max()) + 1} · liberaciones: {int(A['rise'].sum())} · "
           f"sub filtrado: {100 * (1 - A['sub_on'].mean()):.0f}% del tiempo", flush=True)
     print(f"  {A['n'] / fps / 60:.1f} min · {len(A['onsets'])} kicks · {time.time() - t0:.1f}s", flush=True)
-    return build_score(A, a.preset, fps, a.seed, camera=a.cam, palette=a.paleta)
+    score = build_score(A, a.preset, fps, a.seed, camera=a.cam, palette=a.paleta, system=a.sistema, bpm=bpm,
+                        warp=a.warp)
+    if score.dna is not None:
+        from .system import describe
+        print("  ADN: " + " · ".join(f"{k} {v:.2f}" for k, v in score.dna.items()), flush=True)
+        rows = [f"{p.lower()} {v}" for p, v, _, _ in describe(score.dna)]
+        print("  sistema estelar: " + " · ".join(rows[:7]) + "\n                   " + " · ".join(rows[7:]),
+              flush=True)
+    return score
 
 
 def main(argv=None):

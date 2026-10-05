@@ -8,12 +8,14 @@ from .noise import hash32
 
 class FrameCtx:
     """Contexto de un cuadro para el dibujo. La lente (lens) completa lensL/lensT/lens_box/ripple."""
-    __slots__ = ("P", "st", "c", "kc", "i", "roll", "box", "seed", "fps",
+    __slots__ = ("P", "st", "c", "kc", "i", "roll", "box", "seed", "fps", "sys",
                  "lensL", "lensT", "lens_box", "ripple")
 
-    def __init__(self, P, st, c, kc, i, roll, box, seed, fps):
+    def __init__(self, P, st, c, kc, i, roll, box, seed, fps, system=None):
+        from .system import StarSystem
         self.P, self.st, self.c, self.kc, self.i = P, st, c, kc, i
         self.roll, self.box, self.seed, self.fps = roll, box, seed, fps
+        self.sys = system or StarSystem.neutral()
         self.lensL = self.lensT = self.lens_box = self.ripple = None
 
 
@@ -64,30 +66,30 @@ def lens(grid, fr):
     a espacio plano hacia 6 horizontes. También arma la torsión (la espiral general más un
     remolino que se aprieta pegado al borde) y la onda gravitacional de cada liberación.
     Devuelve log(r) curvado; se calcula solo en la zona central."""
-    st = fr.st
+    st, lf = fr.st, fr.sys.lens
     Re = float(st["rh"]) * 1.12
     s0 = 0.06 * Re                             # lo que se ve pegado al borde viene de casi el centro
     El = float(np.sqrt(Re * Re - s0 * Re))
     L = grid.logRR.copy()
     Tw = st["tw"] * grid.SWIRL
-    half = int(6 * Re * grid.hh / 2) + 2
+    half = int(6 * Re * lf * grid.unit) + 2
     cy, cx = grid.hh // 2, grid.ww // 2
     sl = (slice(max(0, cy - half), cy + half), slice(max(0, cx - half), cx + half))
     R = grid.RR[sl]
     src = R - El * El / np.maximum(R, 1e-4)
-    w = np.clip((6 * Re - R) / (4 * Re), 0, 1)
+    w = np.clip((6 * Re * lf - R) / (4 * Re * lf), 0, 1)
     w = w * w * (3 - 2 * w)
     r_eff = np.maximum(R + w * (src - R), s0)
     L[sl] = np.log(r_eff + 1e-4)
     glow = float(st.get("glow", 0.0))
-    Tw[sl] += (1.0 + 1.2 * st["tw"] + 3.0 * glow) * w * (Re / np.maximum(R, Re)) ** 2   # en el drop se retuerce más
+    Tw[sl] += (1.0 + 1.2 * st["tw"] + 3.0 * glow) * lf * w * (Re / np.maximum(R, Re)) ** 2   # en el drop se retuerce más
     # onda gravitacional: en cada liberación sale del horizonte una onda que estira y
     # comprime el espacio a su paso (dura lo que el destello, ~2.5 s)
     fr.ripple = None
     if glow > 0.03:
         ts = -2.5 * np.log(glow)                   # segundos desde la liberación
         d = grid.RR - (Re + 0.9 * ts)
-        rip = (0.07 * glow ** 0.5 * np.sin(2 * np.pi * d / 0.16) * np.exp(-(d / 0.22) ** 2)).astype(np.float32)
+        rip = ((0.07 * fr.sys.turbulence) * glow ** 0.5 * np.sin(2 * np.pi * d / 0.16) * np.exp(-(d / 0.22) ** 2)).astype(np.float32)
         L = L + np.log1p(rip)
         fr.ripple = 1 + rip
     fr.lensL, fr.lensT = L, Tw
@@ -100,7 +102,7 @@ def draw_particles(grid, fr):
     """Partículas sobre el túnel: una celda por (anillo, sector); viajan hacia afuera con el
     avance del túnel y crecen con la distancia. Cada celda recuerda si está encendida
     (se renueva cada 8 kicks) para que el viaje se perciba; en la tensión titila con los hats."""
-    P, st, c, kc = fr.P, fr.st, fr.c, fr.kc
+    P, st, c, kc, sy = fr.P, fr.st, fr.c, fr.kc, fr.sys
     N = int(round(P.get("N", 48) * (1 + 0.5 * c["chaos"])))
     Kd = P.get("Kd", 7.5)
     u = Kd * lens(grid, fr) - st["ph"] * (Kd / 5.0)
@@ -117,29 +119,40 @@ def draw_particles(grid, fr):
     p = P.get("p", 0.2)
     energy = 0.5 * c["low"] + 0.5 * c["mid"]
     if c["closed"]:
-        pr = p * P.get("dens", 0.7) * 0.35 * ((1 - 0.9 * c["tens"]) * (1 - 0.5 * nv * (1 - c["hat"]))
-                                              + 1.6 * nv * c["hat"])      # fogonazo en cada hat
+        pr = p * P.get("dens", 0.7) * sy.matter * 0.35 * ((1 - 0.9 * c["tens"]) * (1 - 0.5 * nv * (1 - c["hat"]))
+                                                          + 1.6 * nv * c["hat"])      # fogonazo en cada hat
     else:
-        pr = p * P.get("dens", 0.7) * (0.4 + 0.9 * energy + 0.8 * c["kick"])
-    # onda que sale del centro en cada kick
-    wave = np.abs(grid.RR - (0.15 + 1.6 * (1 - c["kick"]))) < 0.09
-    lit = (r1 < pr) | (wave & (c["kick"] > 0.2) & (r1 < 0.6) & (not c["closed"]))
+        pr = p * P.get("dens", 0.7) * sy.matter * (0.4 + 0.9 * energy + 0.8 * c["kick"])
+    lit = r1 < pr
     flick = P.get("flicker", 0)
     if flick:
         lit &= hash32(ri + 77, ai + 33, fr.i // flick) < 0.7
     th_ = thin(c)
     th_ += (1 - th_) * nv * c["hat"]                # en el fogonazo vuelven a tamaño pleno
-    sz = (P.get("dot", 0.30) + 0.25 * c["kick"]) * th_ + 0.08
+    sz = (P.get("dot", 0.30) + 0.06 * c["kick"]) * th_ + 0.08
     half = sz / 2
-    inside = (np.abs(fr_ - 0.5) < half) & (np.abs(fa - 0.5) < half)
-    if P.get("plus"):
+    # polvo: la perspectiva las agranda hacia afuera, pero nunca más que unos pocos píxeles
+    # (nada de cuadrados grandes); celdas en píxeles de grilla, radial y angular
+    cr = np.maximum(grid.RR * (grid.unit / Kd), 1e-3)
+    ca = np.maximum(grid.RR * (grid.unit * 2 * np.pi / N), 1e-3)
+    cap = 0.5 * P.get("px", 3.0) * grid.gs
+    hr, ha = np.minimum(half, cap / cr), np.minimum(half, cap / ca)
+    w = c.get("warp", 0.0)
+    if w > 0:                                       # velocidad de la luz: se estiran en líneas hacia donde se viaja
+        hr = np.minimum(0.5, hr + 0.45 * w)
+    dr, da = np.abs(fr_ - 0.5), np.abs(fa - 0.5)
+    inside = (dr < hr) & (da < ha)
+    if P.get("plus"):                               # destellos en cruz, finos y cortos (como los de las estrellas)
         arm = min(0.5, half + 0.12 + 0.08 * c["kick"])
-        thn = 0.05
-        inside |= (((np.abs(fr_ - 0.5) < arm) & (np.abs(fa - 0.5) < thn)) |
-                   ((np.abs(fa - 0.5) < arm) & (np.abs(fr_ - 0.5) < thn))) & (r1 < pr * 0.5)
+        ar, aa = np.minimum(arm, 7 * grid.gs / cr), np.minimum(arm, 7 * grid.gs / ca)
+        tr_, ta = np.minimum(0.05, 0.5 * grid.gs / cr), np.minimum(0.05, 0.5 * grid.gs / ca)
+        inside |= (((dr < ar) & (da < ta)) | ((da < aa) & (dr < tr_))) & (r1 < pr * 0.5)
     on = lit & inside
-    acc = on & (r2 < (0.08 + 0.2 * c["chaos"]))
-    return on.astype(np.uint8) + acc.astype(np.uint8)
+    acc = on & (r2 < (0.08 + 0.2 * c["chaos"]) * sy.accent)
+    # profundidad: la mayoría tenues, pocas brillantes; el kick las enciende (no las agranda)
+    r3 = hash32(ri + 13000, ai + 3000, kc // 8)
+    I = np.where(on, 0.25 + 0.75 * r3 ** 2.2 + 0.3 * c["kick"], 0).astype(np.float32)
+    return levels(I, acc)
 
 
 def draw_arcs(grid, fr):
@@ -167,7 +180,7 @@ def draw_arcs(grid, fr):
     hseg = hash32(ni + 900, sg, st["mut"])
     keep = hseg < (0.55 + 0.15 * c["chaos"])
     keep &= (fa > 0.04) & (fa < 0.96)                                      # corte seco entre arcos
-    w = st["wt"][ni % 32] * P.get("dens", 0.7)
+    w = st["wt"][ni % 32] * (P.get("dens", 0.7) * fr.sys.matter)
     if c["closed"]:
         on = (f < np.clip((0.08 + 0.10 * c["mid"]) * w * thin(c), 0.015, 0.5)) & erode(ni, c)
     else:
@@ -175,7 +188,7 @@ def draw_arcs(grid, fr):
         duty = np.minimum(duty, 0.30 * K / (grid.RR + 0.3))                # los de afuera no se engordan de más
         on = f < duty
     on &= keep
-    acc = on & (hash32(ni + 1200, sg, kc // 8) < (0.14 + 0.22 * c["chaos"]))
+    acc = on & (hash32(ni + 1200, sg, kc // 8) < (0.14 + 0.22 * c["chaos"]) * fr.sys.accent)
     return on.astype(np.uint8) + acc.astype(np.uint8)
 
 
@@ -193,7 +206,8 @@ def _orbits(grid, fr, Lr, ang_src, K, lw_px, wl_scale=None):
     # ondas de densidad espirales (colectivas: todas las órbitas se deforman juntas)
     g = np.random.default_rng([fr.seed, 2024])
     f1, f2, f3 = g.uniform(0, 2 * np.pi, 3)
-    u = u + 0.18 * np.sin(2 * ang_src + f1 + 0.15 * st["rot"]) + 0.1 * np.sin(3 * ang_src - f2 - 0.1 * st["rot"])
+    tb = fr.sys.turbulence
+    u = u + (0.18 * tb) * np.sin(2 * ang_src + f1 + 0.15 * st["rot"]) + (0.1 * tb) * np.sin(3 * ang_src - f2 - 0.1 * st["rot"])
     li = np.floor(u).astype(np.int32)
     fr_ = u - li
     ids = np.arange(-96, 96, dtype=np.int32)
@@ -214,7 +228,7 @@ def _orbits(grid, fr, Lr, ang_src, K, lw_px, wl_scale=None):
     hl = hash32(li + 300, si, st["mut"])
     ln = np.minimum((0.08 + 0.8 * hl ** 1.5) * (1 + 1.4 * c["kick"]), 0.97)
     seg_on = (fa < ln) & (hash32(li + 500, si, st["mut"] // 2)
-                          < (0.3 + 0.5 * dens[k]) * (1 + 0.3 * c["chaos"] + 0.8 * st["glow"]))
+                          < (0.3 + 0.5 * dens[k]) * (1 + 0.3 * c["chaos"] + 0.8 * st["glow"]) * fr.sys.matter)
     wl = lw_px / (grid.hh / 2) * K / (grid.RR + 1e-3) if wl_scale is None else wl_scale
     wl = wl * thick[k]
     if c["closed"]:
@@ -227,7 +241,7 @@ def _orbits(grid, fr, Lr, ang_src, K, lw_px, wl_scale=None):
     I = np.where(on, bri[k] * along * (0.65 + 0.6 * c["kick"]) * (1 + 4.0 * st["glow"]), 0).astype(np.float32)
     if c["closed"]:
         I *= 0.7 + 0.5 * nerv(c) * c["hat"]
-    acc = on & (hash32(li + 800, np.zeros_like(li) + 8, kc // 16) < (0.12 + 0.2 * c["chaos"]))
+    acc = on & (hash32(li + 800, np.zeros_like(li) + 8, kc // 16) < (0.12 + 0.2 * c["chaos"]) * fr.sys.accent)
     return I, acc, li
 
 
@@ -245,10 +259,10 @@ def draw_disk(grid, fr):
     El lado que se acerca, blanco y más brillante; el que se aleja, en el color de acento."""
     P, st = fr.P, fr.st
     K = P.get("K", 16.0)
-    si_ = P.get("incl", 0.16)
+    si_ = fr.sys.incl * P.get("open", 1.0)
     lens(grid, fr)
     sl, ratio = fr.lens_box
-    XR, YR, RHO, PHI = grid.disk_coords(P.get("tilt", -24.0), si_)
+    XR, YR, RHO, PHI = grid.disk_coords(P.get("tilt", fr.sys.tilt), si_)
     rho, phi = RHO.copy(), PHI.copy()
     xs, ys = XR[sl] * ratio, YR[sl] * ratio / si_
     rho[sl] = np.hypot(xs, ys)

@@ -62,6 +62,8 @@ Si el audio viene casi mudo (típico de una exportación con pistas en solo), el
 | `--stills s1,s2,…` | guarda cuadros PNG en vez de video |
 | `--jobs N` | procesos en paralelo (0 = automático; `--jobs 4` calienta menos la máquina) |
 | `--ss 2` | supersampling (2 = bordes limpios; 1 = píxel duro a media resolución) |
+| `--sistema adn \| neutro` | `adn` (por defecto): cada track tiene su propio sistema estelar según su ADN; `neutro`: el motor sin ADN, igual para todos |
+| `--sin-warp` | sin velocidad de la luz |
 | `--no-cam` | sin movimiento de cámara |
 | `--no-audio` | exporta solo el video |
 | `--show-keys` | muestra la tonalidad detectada a lo largo del track (con código Camelot) |
@@ -74,7 +76,7 @@ El motor trabaja en tres capas: **escuchar** el track, escribir una **partitura*
 
 - **Tempo** por autocorrelación (precisión de 0,01 BPM) y **beats** por programación dinámica; los **kicks** son los beats con energía en 35–130 Hz.
 - **Sub presente / filtrado** (25–60 Hz, relativo al sub pleno): los cortes parciales también cuentan, porque la tensión se arma filtrando el sub, no cortando el kick.
-- **Liberaciones**: vuelve el sub o vuelve el kick después de ≥ 8 s. Se anclan al primer kick que ya trae el sub entero, medido sin suavizar. Dos liberaciones a menos de 2 s cuentan como una.
+- **Liberaciones**: vuelve el sub o vuelve el kick después de ≥ 8 s y se queda (un golpe suelto de kick dentro del filtrado no es un drop). Se anclan al primer kick que ya trae el sub entero, medido sin suavizar. Dos liberaciones a menos de 2 s cuentan como una.
 - **Tensión**: progreso 0 → 1 dentro de cada tramo filtrado; termina exactamente en la liberación.
 - **Caos**: curva lenta de agudos (el track "se abre").
 - **Hats**: ataques de 5–11 kHz; cargan la tensión en su último tramo.
@@ -97,12 +99,13 @@ Después cualquier cuadro se dibuja solo con su entrada. Por eso los tramos, los
 
 El estilo cambia solo en las liberaciones, de a un escalón:
 
-**brillos → puntos → puntos densos → arcos → estelas → disco**
+**brillos → puntos → estelas → disco**
 
-- **Partículas** (brillos, puntos): viven sobre un túnel radial y viajan hacia la cámara.
-- **Arcos**: anillos fragmentados que giran en sentidos opuestos y engranan con el kick.
-- **Estelas**: materia en órbita, más rápida cerca del agujero; el kick las estira. La mayoría son tenues y brillan más cerca del horizonte, con anillos densos y huecos.
-- **Disco**: el disco de acreción visto en diagonal, casi de canto (tipo Gargantua); la lente dobla la parte de atrás alrededor del horizonte.
+Todo lo que se ve tiene que parecer parte del espacio: nada de anillos ni formas geométricas marcadas. El kick pega en la luz (enciende), no en la forma (casi no agranda ni estira).
+
+- **Partículas** (brillos, puntos): viven sobre un túnel radial y viajan hacia la cámara. Tienen profundidad: la mayoría tenues, pocas brillantes.
+- **Estelas**: materia en órbita, más rápida cerca del agujero. La mayoría son tenues y brillan más cerca del horizonte, con anillos densos y huecos.
+- **Disco**: el disco de acreción visto en diagonal, casi de canto (tipo Gargantua); la lente dobla la parte de atrás alrededor del horizonte. Su inclinación y su apertura son las del sistema estelar del track.
 
 En todos los estilos:
 
@@ -111,6 +114,30 @@ En todos los estilos:
 - **Fenómenos del espacio**: cada capa que entra suma uno (cometa, pulsar, luna en órbita, estrella que se enciende, meteoros, jets polares). Reacciona a la actividad de *esa* capa; la más nueva va en color de acento.
 - **Tensión**: erosión (los elementos se apagan de a uno) y, al final del tramo, lo que sobrevive titila con los hats. El último beat antes de la liberación es una **respiración** a negro.
 - **Liberación**: la materia se enciende entera, el remolino se retuerce y sale del horizonte una **onda gravitacional** que deforma el espacio a su paso durante unos segundos.
+- **Velocidad de la luz**: la liberación es el escape del agujero. El espacio salta a la velocidad de la luz: las estrellas se abren hacia afuera estiradas en líneas finas, el túnel se acelera y las partículas se estiran hacia donde se viaja. El salto es más alto cuanto más larga fue la tensión, se sostiene un compás y se asienta en un crucero suave mientras dura la fuerza; en la tensión (la atracción) se frena del todo.
+
+### El sistema estelar de cada track (`medina/system.py`)
+
+Todos los tracks hablan el mismo idioma, pero cada uno tiene su propio sistema. La capa emocional (`medina/emotion.py`) mide el **ADN** del track en ocho ejes (caos, vacío, vorágine, energía, luz, densidad, hipnosis, aspereza) y de ahí salen:
+
+| Parámetro | Eje | Qué expresa |
+|---|---|---|
+| masa del agujero (radio y lente) | vorágine | más atracción: un agujero más grande que curva más el espacio |
+| disco: inclinación y apertura | caos · vorágine | orden: plano y estable; caos: inclinado, inquieto; más masa: la elipse se abre |
+| velocidad orbital | energía | órbitas lentas o vertiginosas |
+| densidad de materia | densidad | partículas, órbitas y segmentos |
+| turbulencia | caos | órbitas que se deforman, ondas en el espacio |
+| estrellas de fondo | vacío | cuánto espacio profundo se ve |
+| luz y tono del violeta | luz | resplandor; violeta profundo ↔ lavanda |
+| proporción de acento | energía | cuánto violeta frente al blanco |
+| grano | aspereza | limpio o áspero como el ruido del track |
+| estela | vacío | cuánto dura el recuerdo de lo que pasó |
+| cámara (distancia y temblor) | vacío · energía | lejos y quieta en el vacío; cerca y golpeada con energía |
+| fenómenos preferidos | hipnosis · energía · vacío · caos | pulsares, jets, lunas solitarias, cometas… |
+| ritmo del viaje | energía | cuántos escalones sube por liberación |
+| velocidad de la luz | energía | cuánto se estira el espacio al escapar |
+
+El sistema `neutro` (`--sistema neutro`) reproduce exactamente el motor sin ADN.
 
 ### 4. Acabado
 
@@ -132,7 +159,8 @@ En todos los estilos:
 | `medina/audio.py` | leer el archivo, tempo, beats, control de audio mudo, semilla del audio |
 | `medina/analysis.py` | escuchar el track: kicks, sub, tensión, liberaciones, respiración, caos, hats, silencios, capas, tonalidad |
 | `medina/score.py` | la partitura: el viaje, el movimiento, la cámara y el color de cada cuadro |
-| `medina/emotion.py` | la capa emocional (en calibración): qué emoción transmite cada momento (incertidumbre, miedo, esperanza, enigma, soledad, fuerza, vulnerabilidad), las secciones del track y su ADN, del que sale su sistema estelar. Todavía no cambia el video |
+| `medina/emotion.py` | la capa emocional: qué emoción transmite cada momento (incertidumbre, miedo, esperanza, enigma, soledad, fuerza, vulnerabilidad), las secciones del track y su ADN. La fuerza marca la velocidad de la luz |
+| `medina/system.py` | el sistema estelar de cada track, a partir de su ADN |
 | `medina/styles.py` | los estilos (partículas, arcos, estelas, disco) y la lente gravitacional |
 | `medina/space.py` | lo común a todos: estrellas, silencio, fenómenos de las capas, agujero negro |
 | `medina/post.py`, `medina/logo.py` | acabado reactivo y firma |
@@ -150,14 +178,14 @@ El modo viejo para sets (espectro, video del celular, barras, túnel) y los esti
 .venv/bin/python -m pytest -q
 ```
 
-- **Track sintético** (`tests/synth.py`): tiene una historia conocida (kick con sub, un tramo filtrado, la liberación en un beat exacto, hats en corcheas y un sinte que entra), así que los tests no necesitan tu música. Verifican el tempo, los kicks, la liberación, la tensión, la respiración, los hats, las capas, la partitura (determinista, el viaje cambia solo en liberaciones, cámara y paletas acotadas) y el dibujo (mucho negro, respiración a negro, cuadros sueltos independientes, tramos iguales al video completo). También hay cuadros de referencia en `tests/golden/`: si un cambio de look es intencional, se regeneran con `.venv/bin/python -m tests.make_golden`.
+- **Track sintético** (`tests/synth.py`): tiene una historia conocida (kick con sub, un tramo filtrado, la liberación en un beat exacto, hats en corcheas y un sinte que entra), así que los tests no necesitan tu música. Verifican el tempo, los kicks, la liberación, la tensión, la respiración, los hats, las capas, la partitura (determinista, el viaje cambia solo en liberaciones, cámara y paletas acotadas), el sistema estelar y la velocidad de la luz, y el dibujo con el sistema neutro y con el del ADN (mucho negro, respiración a negro, cuadros sueltos independientes, tramos iguales al video completo). También hay cuadros de referencia en `tests/golden/`: si un cambio de look es intencional, se regeneran con `.venv/bin/python -m tests.make_golden`.
 - **Tus tracks** (`tests/test_real_tracks.py`): si están en `tracks/`, se verifican el tempo y las liberaciones validadas contra el espectrograma. Si no están, se saltean.
 
 Para verificar que un cambio no altera la imagen de tus tracks (por ejemplo, el paso a GPU):
 
 ```bash
-.venv/bin/python tools/referencias.py guardar renders/_ref/base     # antes, con la versión aprobada
-.venv/bin/python tools/referencias.py comparar renders/_ref/base    # después
+.venv/bin/python tools/referencias.py guardar renders/_ref/base [adn|neutro]   # antes, con la versión aprobada
+.venv/bin/python tools/referencias.py comparar renders/_ref/base               # después (con el mismo sistema)
 ```
 
 ## Pendientes conocidos
@@ -165,7 +193,7 @@ Para verificar que un cambio no altera la imagen de tus tracks (por ejemplo, el 
 - **Kicks que caen justo antes del centro de un cuadro.** El control de "¿hay graves en este beat?" mira un solo cuadro, y un kick corto que cae un poco antes del centro del cuadro no se cuenta. En los tracks actuales no pasa: se detecta el 100 % de los kicks en los tramos con sub. Pero en un tempo que dura un número entero de cuadros (por ejemplo, 120 BPM = 15 cuadros por beat) podrían perderse todos. El test `test_kicks_en_cualquier_fase_del_cuadro` lo documenta como falla conocida.
   - **Arreglo probado:** mirar ±1 cuadro, como ya hace el flujo del kick.
   - **Qué cambia:** cuenta también los kicks de tus tramos filtrados (+12, +58 y +31 en los tres tracks), y en `Untitled 9` agrega una liberación falsa a mitad de la tensión larga (3:28).
-  - **Qué falta:** ajustar también la regla de "vuelve el kick" (que exija que vuelva el sub) y validarlo visualmente.
+  - **Qué falta:** validarlo visualmente. La regla de "vuelve el kick" ya exige que el kick se quede (un golpe suelto no cuenta), lo que evitaba dos liberaciones falsas en `Untitled13`; falta probar si con eso alcanza para la falsa de `Untitled 9`.
 
 ## Próximo paso
 

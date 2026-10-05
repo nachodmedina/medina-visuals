@@ -13,6 +13,12 @@ from PIL import Image
 WARM_S = 3.0          # la estela depende de los cuadros anteriores: se dibujan ~3 s antes, sin exportar
 
 
+def _warm(renderer):
+    """Cuadros a precalentar: 3 s, más si el sistema estelar alarga la estela."""
+    post = renderer.post
+    return int(WARM_S * max(1.0, post.trail) * renderer.grid.fps) if post is not None else 0
+
+
 def encoder(output, W, H, fps, audio=None, t_start=0.0, t_len=0.0, x264="veryfast", crf=18):
     """ffmpeg recibiendo cuadros rgb24 por stdin -> mp4 (h264, con el audio del tramo si hay)."""
     cmd = ["ffmpeg", "-y", "-v", "error",
@@ -30,7 +36,7 @@ def encoder(output, W, H, fps, audio=None, t_start=0.0, t_len=0.0, x264="veryfas
 def render_video(renderer, i0, i1, enc, quiet=False):
     """Dibuja los cuadros [i0, i1) (con la estela precalentada) y los manda al encoder."""
     g = renderer.grid
-    warm = int(WARM_S * g.fps) if renderer.post is not None else 0
+    warm = _warm(renderer)
     frame = np.zeros((g.H, g.W, 3), np.uint8)
     n_out = i1 - i0
     k = 0
@@ -59,7 +65,7 @@ def draw_still(renderer, i):
     """El cuadro i con su propia estela precalentada: sale igual que en un video que arranca
     3 s antes, sin importar qué otros cuadros se hayan dibujado."""
     g = renderer.grid
-    warm = int(WARM_S * g.fps) if renderer.post is not None else 0
+    warm = _warm(renderer)
     frame = np.zeros((g.H, g.W, 3), np.uint8)
     if renderer.post is not None:
         renderer.post.reset()

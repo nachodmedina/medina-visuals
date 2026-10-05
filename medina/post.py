@@ -9,7 +9,10 @@ from .presets import LOOKS, RED
 
 
 class Post:
-    def __init__(self, W, H, fps, A, look, seed):
+    def __init__(self, W, H, fps, A, look, seed, system=None):
+        from .system import StarSystem
+        sysm = system or StarSystem.neutral()
+        self.light, self.trail = sysm.light, sysm.trail
         L = self.L = LOOKS[look]
         self.W, self.H, self.fps, self.seed = W, H, fps, seed
         self.s = H / 1080
@@ -18,14 +21,14 @@ class Post:
         # bloom: base + destello en cada liberación que se apaga exponencialmente
         last = np.maximum.accumulate(np.where(A["rise"], idx, -1))
         env = np.where(last >= 0, np.exp(-(idx - last) / (L["bloom_tau"] * fps)), 0.0)
-        self.bloom = (L["bloom"][0] + L["bloom"][1] * env * (0.7 + 0.3 * A["kick"])).astype(np.float32)
+        self.bloom = ((L["bloom"][0] + L["bloom"][1] * env * (0.7 + 0.3 * A["kick"])) * sysm.light).astype(np.float32)
         # estela: vida media según la tensión (y el fade final)
         T = np.maximum(A["tension"], A["fade"])
-        hl = L["trail_hl"][0] + (L["trail_hl"][1] - L["trail_hl"][0]) * T ** 1.5
+        hl = (L["trail_hl"][0] + (L["trail_hl"][1] - L["trail_hl"][0]) * T ** 1.5) * sysm.trail
         self.decay = (0.5 ** (1 / (hl * fps))).astype(np.float32)
         self.decay[A["breath"]] = 0.0              # la respiración corta la estela: negro limpio
         # grano según el caos
-        self.grain = (L["grain"][0] + (L["grain"][1] - L["grain"][0]) * A["chaos"]).astype(np.float32)
+        self.grain = ((L["grain"][0] + (L["grain"][1] - L["grain"][0]) * A["chaos"]) * sysm.grain).astype(np.float32)
         # fantasma en kicks fuertes; más leve en tensión
         strong = np.where(A["strength"] >= 1.0, 1.0, 0.0).astype(np.float32)
         self.ghost = envelope(strong, 0.55) * (1 - 0.6 * T)
@@ -71,7 +74,7 @@ class Post:
         T = float(self.T[i])
         nerv = min(1.0, max(0.0, (T - 0.35) / 0.65))
         amp = (0.30 + 0.35 * T + 0.35 * float(self.flare[i])       # energía que se concentra en el borde:
-               + 0.25 * float(self.kick[i]) + 0.35 * nerv * float(self.hat[i]))   # late con kicks y hats
+               + 0.25 * float(self.kick[i]) + 0.35 * nerv * float(self.hat[i])) * self.light   # late con kicks y hats
         core = 0.55 * np.exp(-(out / (1.2 * self.s + 0.012 * r)) ** 2)          # filo finísimo
         halo = amp * np.exp(-out / (0.28 * r + 2))                               # difuso, hacia afuera
         ac = np.asarray(accent, np.float32) / 255

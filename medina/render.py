@@ -15,7 +15,7 @@ class Grid:
     ss >= 2 (acabado B): se calcula a ss× la salida y se baja con Lanczos (bordes limpios);
     ss = 1: a media resolución y se agranda sin interpolar (píxel duro)."""
 
-    def __init__(self, W, H, ss=2, fps=30):
+    def __init__(self, W, H, ss=2, fps=30, distance=1.0):
         self.W, self.H, self.fps = W, H, fps
         s = self.s = H / 1080
         self.m = int(56 * s)
@@ -37,6 +37,9 @@ class Grid:
         r = hh / 2
         self.yy = (yy - hh / 2 + 0.5) / r
         self.xx = (xx - ww / 2 + 0.5) / r
+        if distance != 1.0:                        # cámara más lejos: el mismo espacio se ve más chico
+            self.yy, self.xx = self.yy * distance, self.xx * distance
+        self.unit = hh / 2 / distance              # píxeles de grilla por unidad del espacio
         self.RR = np.hypot(self.xx, self.yy).astype(np.float32)
         self.TH = np.arctan2(self.yy, self.xx).astype(np.float32)
         self.logRR = np.log(self.RR + 1e-4).astype(np.float32)
@@ -60,14 +63,15 @@ class Grid:
 class Renderer:
     def __init__(self, score, W, H, title="MED1NA", font=None, ss=2, look="luz"):
         self.score = score
-        self.grid = Grid(W, H, ss, score.fps)
+        sysm = score.system
+        self.grid = Grid(W, H, ss, score.fps, sysm.distance)
         # 0 negro, 1 blanco, 2 acento; 3-5 blancos tenues (18/40/70 %), 6-7 acento tenue (35/65 %)
         self.pal = np.array([BLACK, WHITE, RED] + [BLACK] * 5, np.uint8)
         self.set_accent(RED)
-        self.stars = Starfield(score.seed)
-        self.phenomena = Phenomena(score.seed)
+        self.stars = Starfield(score.seed, sysm.stars)
+        self.phenomena = Phenomena(score.seed, sysm.phenomena)
         self.logo = Logo(title, font, W, H)
-        self.post = Post(W, H, score.fps, score.analysis, look, score.seed) if LOOKS[look] else None
+        self.post = Post(W, H, score.fps, score.analysis, look, score.seed, sysm) if LOOKS[look] else None
 
     def set_accent(self, c):
         self.accent = c
@@ -109,7 +113,7 @@ class Renderer:
         c = fs.c
         self.set_accent(sc.accent[i])
         roll, box = self.camera(i)
-        fr = FrameCtx(P, fs.st, c, fs.kc, i, roll, box, sc.seed, sc.fps)
+        fr = FrameCtx(P, fs.st, c, fs.kc, i, roll, box, sc.seed, sc.fps, sc.system)
         idx = STYLES[P["style"]](g, fr)
         hole = None
         idx = self.stars.draw(idx, g, fr)

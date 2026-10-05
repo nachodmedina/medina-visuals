@@ -25,12 +25,15 @@ PRESETS = {
     "arcos":         dict(style="arcs", K=3.2),
     # espacio: materia en órbita y el disco de acreción visto casi de canto (tipo Gargantua)
     "estelas":       dict(style="streaks", K=14.0, glitch=False),
-    "disco":         dict(style="disk", K=20.0, incl=0.21, glitch=False),
-    # viaje: el track decide el estilo. Antes del primer silencio, mundo de partículas;
-    # después, mundo del espacio. Solo cambia en las liberaciones.
+    # el disco (inclinación y apertura: del sistema estelar); el abierto es el mismo visto más desde arriba
+    "disco_abierto": dict(style="disk", K=16.0, open=2.2, glitch=False),
+    "disco":         dict(style="disk", K=20.0, glitch=False),
+    # viaje: el track decide el estilo. Antes del primer silencio, mundo de partículas (polvo que
+    # viene hacia la cámara); después, el disco en diagonal, cada vez más de canto. Solo cambia en
+    # las liberaciones. Nada de anillos ni círculos: lo que se ve tiene que parecer parte del espacio.
     "viaje":         dict(style="journey",
-                          worlds=[["brillos", "puntos", "puntos_densos"],
-                                  ["arcos", "estelas", "disco"]]),
+                          worlds=[["brillos", "puntos"],
+                                  ["disco_abierto", "disco"]]),
 }
 
 # Post-proceso reactivo. Cada efecto lee una señal del track:

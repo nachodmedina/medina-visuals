@@ -1,11 +1,13 @@
 """Referencias para verificar que un cambio no altera la imagen (refactors, paso a GPU).
 
-    .venv/bin/python tools/referencias.py guardar renders/_ref/base     # con la versión aprobada
-    .venv/bin/python tools/referencias.py comparar renders/_ref/base    # después del cambio
+    .venv/bin/python tools/referencias.py guardar renders/_ref/base [adn|neutro]   # con la versión aprobada
+    .venv/bin/python tools/referencias.py comparar renders/_ref/base               # después del cambio
 
 Por cada track de tracks/: el análisis, cuadros sueltos (inicio, 20/40/60/80 %, cada liberación
 +0.3 s y la respiración anterior) y un tramo de 3 s alrededor de la primera liberación.
 Todo a 960x540 con el look luz. Informa diferencias exactas por cuadro.
+La referencia recuerda con qué sistema estelar se guardó (adn por defecto; las viejas, neutro)
+y `comparar` usa ese mismo.
 """
 import glob
 import os
@@ -37,12 +39,12 @@ def moments(A):
     return at
 
 
-def snapshot(path):
+def snapshot(path, system="adn"):
     y = load_audio(path, ANALYSIS_SR)
     bpm = detect_bpm(path)
     seed = seed_from_audio(y)
     A = analyze(y, FPS, (bpm - 3, bpm + 3))
-    R = Renderer(build_score(A, "viaje", FPS, seed), W, H)
+    R = Renderer(build_score(A, "viaje", FPS, seed, system=system, bpm=bpm), W, H)
     frames = {k: draw_still(R, i).copy() for k, i in moments(A).items()}
     rises = np.where(A["rise"])[0]
     chunk = []
@@ -52,18 +54,20 @@ def snapshot(path):
         for i in range(max(0, rises[0] - 2 * FPS), min(A["n"], rises[0] + FPS)):
             chunk.append(R.draw(f, i).copy())
     signals = {k: v for k, v in A.items() if isinstance(v, np.ndarray)}
-    return dict(bpm=bpm, seed=seed, signals=signals, frames=frames, chunk=np.array(chunk))
+    return dict(bpm=bpm, seed=seed, system=system, signals=signals, frames=frames, chunk=np.array(chunk))
 
 
 def _save(snap, path):
     arrays = {f"s_{k}": v for k, v in snap["signals"].items()}
     arrays.update({f"f_{k}": v for k, v in snap["frames"].items()})
-    np.savez_compressed(path, bpm=snap["bpm"], seed=snap["seed"], chunk=snap["chunk"], **arrays)
+    np.savez_compressed(path, bpm=snap["bpm"], seed=snap["seed"], system=snap["system"], chunk=snap["chunk"],
+                        **arrays)
 
 
 def _load(path):
     z = np.load(path)
     return dict(bpm=float(z["bpm"]), seed=int(z["seed"]), chunk=z["chunk"],
+                system=str(z["system"]) if "system" in z.files else "neutro",
                 signals={k[2:]: z[k] for k in z.files if k.startswith("s_")},
                 frames={k[2:]: z[k] for k in z.files if k.startswith("f_")})
 
@@ -88,32 +92,35 @@ def _compare(ref, snap):
 
 
 def _job(args):
-    cmd, folder, track = args
+    cmd, folder, track, system = args
     name = os.path.splitext(os.path.basename(track))[0]
-    snap = snapshot(track)
     path = os.path.join(folder, f"{name}.npz")
     if cmd == "guardar":
+        snap = snapshot(track, system)
         _save(snap, path)
         for k, f in snap["frames"].items():
             Image.fromarray(f).save(os.path.join(folder, f"{name}_{k}.png"))
         return name, [f"{len(snap['frames'])} cuadros + tramo de {len(snap['chunk'])}"], True
     if not os.path.exists(path):
         return name, ["no hay referencia guardada"], False
-    lines = _compare(_load(path), snap)
+    ref = _load(path)
+    lines = _compare(ref, snapshot(track, ref["system"]))
     return name, lines or ["idéntico"], not lines
 
 
 def main():
-    if len(sys.argv) != 3 or sys.argv[1] not in ("guardar", "comparar"):
+    if len(sys.argv) not in (3, 4) or sys.argv[1] not in ("guardar", "comparar") \
+            or sys.argv[3:] not in ([], ["adn"], ["neutro"]):
         sys.exit(__doc__)
     from concurrent.futures import ProcessPoolExecutor
     cmd, folder = sys.argv[1], sys.argv[2]
+    system = sys.argv[3] if len(sys.argv) == 4 else "adn"
     tracks = sorted(glob.glob(os.path.join(ROOT, "tracks", "*.wav")))
     if not tracks:
         sys.exit("No hay tracks en tracks/.")
     os.makedirs(folder, exist_ok=True)
     with ProcessPoolExecutor(max_workers=min(len(tracks), max(1, (os.cpu_count() or 2) // 3))) as ex:
-        results = list(ex.map(_job, [(cmd, folder, t) for t in tracks]))
+        results = list(ex.map(_job, [(cmd, folder, t, system) for t in tracks]))
     for name, lines, ok in results:
         print(f"  {name}: {lines[0]}")
         for ln in lines[1:]:

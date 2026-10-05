@@ -293,43 +293,9 @@ def dna_axes(raw):
 
 
 def star_system(ax):
-    """Propuesta: qué varía en el sistema estelar de cada track según su ADN.
-    Devuelve (parámetro, valor para este track, eje que lo define, qué expresa)."""
-    L = lambda a, b, t: a + (b - a) * t
-    vio = [int(round(L(a, b, ax["luz"]))) for a, b in ((86, 150), (36, 95), (150, 230))]
-    fav = sorted([("pulsares y estrellas", ax["hipnosis"]), ("jets", ax["energia"]),
-                  ("lunas solitarias", ax["vacio"]), ("cometas y meteoros", ax["caos"])],
-                 key=lambda x: -x[1])[:2]
-    return [
-        ("Masa del agujero", f"radio {L(0.06, 0.11, ax['voragine']):.3f} · lente ×{L(0.8, 1.4, ax['voragine']):.2f}",
-         "vorágine", "más atracción: un agujero más grande que curva más el espacio"),
-        ("Inclinación del disco", f"{L(12, 34, ax['caos']):.0f}°", "caos",
-         "orden: disco plano y estable; caos: inclinado, inquieto"),
-        ("Velocidad orbital", f"×{L(0.7, 1.35, ax['energia']):.2f}", "energía",
-         "cuánto empuja el track: órbitas lentas o vertiginosas"),
-        ("Densidad de materia", f"×{L(0.7, 1.3, ax['densidad']):.2f}", "densidad",
-         "cantidad de partículas, órbitas y segmentos"),
-        ("Turbulencia", f"ondas ×{L(0.5, 1.8, ax['caos']):.2f}", "caos",
-         "órbitas que se deforman y ondas en el espacio"),
-        ("Estrellas de fondo", f"{int(L(400, 1400, ax['vacio']))} estrellas", "vacío",
-         "cuánto espacio profundo se ve: la calma del vacío"),
-        ("Luz", f"resplandor ×{L(0.7, 1.35, ax['luz']):.2f}", "luz",
-         "intensidad del bloom y del halo del horizonte"),
-        ("Tono del violeta", "#{:02x}{:02x}{:02x}".format(*vio), "luz",
-         "dentro de la paleta: violeta profundo (oscuro) ↔ lavanda (luminoso)"),
-        ("Proporción de acento", f"{L(10, 30, ax['energia']):.0f} %", "energía",
-         "cuánto violeta frente al blanco"),
-        ("Grano", f"×{L(0.6, 1.8, ax['aspereza']):.2f}", "aspereza",
-         "textura: limpio y liso, o áspero como el ruido del track"),
-        ("Estela", f"×{L(0.7, 1.6, ax['vacio']):.2f}", "vacío",
-         "cuánto dura el recuerdo de lo que pasó"),
-        ("Cámara", f"distancia ×{L(1.0, 1.25, ax['vacio']):.2f} · temblor ×{L(0.6, 1.4, ax['energia']):.2f}",
-         "vacío · energía", "lejos y quieta en el vacío; cerca y golpeada con energía"),
-        ("Fenómenos preferidos", " y ".join(f for f, _ in fav), "hipnosis · energía · vacío · caos",
-         "qué fenómenos del espacio tienden a aparecer en este sistema"),
-        ("Ritmo del viaje", f"{'rápido' if ax['energia'] > 0.6 else 'pausado'}", "energía",
-         "cuántos escalones sube el viaje por liberación"),
-    ]
+    """Propuesta: qué varía en el sistema estelar de cada track según su ADN (ver system.py)."""
+    from .system import describe
+    return describe(ax)
 
 
 def emotional_map(A, fps, bpm):

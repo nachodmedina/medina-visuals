@@ -19,33 +19,34 @@ def golden_frames(score):
     return {k: draw_still(R, int(round(t * score.fps))) for k, t in GOLDEN.items()}
 
 
-def test_cuadro_bien_formado_y_oscuro(score):
-    f = draw_still(small_renderer(score), 50 * score.fps)
+def test_cuadro_bien_formado_y_oscuro(any_score):
+    f = draw_still(small_renderer(any_score), 50 * any_score.fps)
     assert f.shape == (180, 320, 3) and f.dtype == np.uint8
     lum = f.mean(-1)
     assert np.median(lum) < 12              # mucho negro
     assert (lum > 128).mean() > 0.001       # pero algo encendido
 
 
-def test_la_respiracion_es_negro(synth, score):
+def test_la_respiracion_es_negro(synth, any_score):
     b = np.where(synth["A"]["breath"])[0]
-    f = draw_still(small_renderer(score), int(b[len(b) // 2]))
+    f = draw_still(small_renderer(any_score), int(b[len(b) // 2]))
     lum = f.mean(-1)
     assert (lum > 40).mean() < 0.03         # solo la línea (y la firma, apenas)
 
 
-def test_cuadros_sueltos_independientes(score):
-    R = small_renderer(score)
+def test_cuadros_sueltos_independientes(any_score):
+    R = small_renderer(any_score)
     solo = draw_still(R, 1500)
     draw_still(R, 1200)                      # otro cuadro antes no debe cambiar nada
     again = draw_still(R, 1500)
     assert np.array_equal(solo, again)
 
 
-def test_tramo_igual_al_video_completo(score):
-    """Un tramo arranca con la estela precalentada 3 s: debe coincidir con el video completo."""
-    R = small_renderer(score)
-    i = 45 * score.fps
+def test_tramo_igual_al_video_completo(any_score):
+    """Un tramo arranca con la estela precalentada 3 s (o más, si el sistema la alarga):
+    debe coincidir con el video completo."""
+    R = small_renderer(any_score)
+    i = 45 * any_score.fps
     frame = np.zeros((180, 320, 3), np.uint8)
     for j in range(0, i + 1):                # video completo desde el cuadro 0
         R.draw(frame, j)
@@ -60,8 +61,8 @@ def golden(score):
     return golden_frames(score)
 
 
-def test_sin_post(score):
-    f = draw_still(small_renderer(score, look="seco"), 50 * score.fps)
+def test_sin_post(any_score):
+    f = draw_still(small_renderer(any_score, look="seco"), 50 * any_score.fps)
     assert f.shape == (180, 320, 3)
 
 
