@@ -2,6 +2,7 @@
 
     .venv/bin/python tools/referencias.py guardar renders/_ref/base [adn|neutro]   # con la versión aprobada
     .venv/bin/python tools/referencias.py comparar renders/_ref/base               # después del cambio
+    .venv/bin/python tools/referencias.py comparar renders/_ref/base gpu           # el motor de GPU, con tolerancia
 
 Por cada track de tracks/: el análisis, cuadros sueltos (inicio, 20/40/60/80 %, cada liberación
 +0.3 s y la respiración anterior) y un tramo de 3 s alrededor de la primera liberación.
@@ -39,12 +40,21 @@ def moments(A):
     return at
 
 
-def snapshot(path, system="adn"):
+# el motor de GPU no es idéntico bit a bit: alcanza con que se vea igual
+GPU_MEAN, GPU_FAR = 2.0, 0.5          # diferencia media (de 255) y % de píxeles con más de 60 de diferencia
+
+
+def snapshot(path, system="adn", motor="cpu"):
     y = load_audio(path, ANALYSIS_SR)
     bpm = detect_bpm(path)
     seed = seed_from_audio(y)
     A = analyze(y, FPS, (bpm - 3, bpm + 3))
-    R = Renderer(build_score(A, "viaje", FPS, seed, system=system, bpm=bpm), W, H)
+    score = build_score(A, "viaje", FPS, seed, system=system, bpm=bpm)
+    if motor == "gpu":
+        from medina.gpu import GPURenderer
+        R = GPURenderer(score, W, H)
+    else:
+        R = Renderer(score, W, H)
     frames = {k: draw_still(R, i).copy() for k, i in moments(A).items()}
     rises = np.where(A["rise"])[0]
     chunk = []
@@ -72,9 +82,19 @@ def _load(path):
                 frames={k[2:]: z[k] for k in z.files if k.startswith("f_")})
 
 
-def _compare(ref, snap):
+def _compare(ref, snap, motor="cpu"):
     bad = [k for k, v in ref["signals"].items() if k not in snap["signals"] or not np.array_equal(v, snap["signals"][k])]
     lines = [f"señales distintas: {bad}"] if bad else []
+    if motor == "gpu":                      # con tolerancia: que se vea igual
+        worst = (0.0, 0.0, "")
+        for k, f in list(ref["frames"].items()) + [(f"tramo{j}", c) for j, c in enumerate(ref["chunk"])]:
+            g = snap["frames"][k] if k in snap["frames"] else snap["chunk"][int(k[5:])]
+            d = np.abs(f.astype(int) - g.astype(int))
+            mean, far = d.mean(), 100 * (d.max(-1) > 60).mean()
+            worst = max(worst, (mean, far, k))
+            if mean > GPU_MEAN or far > GPU_FAR:
+                lines.append(f"cuadro {k}: diferencia media {mean:.2f}, {far:.2f}% de píxeles con más de 60")
+        return lines, f"equivalente (peor cuadro: {worst[2]}, media {worst[0]:.2f}, {worst[1]:.2f}% > 60)"
     for k, f in ref["frames"].items():
         if k not in snap["frames"]:
             lines.append(f"cuadro {k}: falta")
@@ -88,11 +108,11 @@ def _compare(ref, snap):
         d = np.abs(ref["chunk"].astype(int) - snap["chunk"].astype(int)).reshape(len(ref["chunk"]), -1)
         if d.max():
             lines.append(f"tramo: {(d.max(1) > 0).sum()}/{len(d)} cuadros distintos, máx {d.max()}/255")
-    return lines
+    return lines, "idéntico"
 
 
 def _job(args):
-    cmd, folder, track, system = args
+    cmd, folder, track, system, motor = args
     name = os.path.splitext(os.path.basename(track))[0]
     path = os.path.join(folder, f"{name}.npz")
     if cmd == "guardar":
@@ -104,29 +124,32 @@ def _job(args):
     if not os.path.exists(path):
         return name, ["no hay referencia guardada"], False
     ref = _load(path)
-    lines = _compare(ref, snapshot(track, ref["system"]))
-    return name, lines or ["idéntico"], not lines
+    lines, ok_msg = _compare(ref, snapshot(track, ref["system"], motor), motor)
+    return name, lines or [ok_msg], not lines
 
 
 def main():
     if len(sys.argv) not in (3, 4) or sys.argv[1] not in ("guardar", "comparar") \
-            or sys.argv[3:] not in ([], ["adn"], ["neutro"]):
+            or sys.argv[3:] not in ([], ["adn"], ["neutro"], ["gpu"]) or (sys.argv[1], sys.argv[3:]) == ("guardar", ["gpu"]):
         sys.exit(__doc__)
     from concurrent.futures import ProcessPoolExecutor
     cmd, folder = sys.argv[1], sys.argv[2]
-    system = sys.argv[3] if len(sys.argv) == 4 else "adn"
+    motor = "gpu" if sys.argv[3:] == ["gpu"] else "cpu"
+    system = sys.argv[3] if len(sys.argv) == 4 and motor == "cpu" else "adn"
     tracks = sorted(glob.glob(os.path.join(ROOT, "tracks", "*.wav")))
     if not tracks:
         sys.exit("No hay tracks en tracks/.")
     os.makedirs(folder, exist_ok=True)
     with ProcessPoolExecutor(max_workers=min(len(tracks), max(1, (os.cpu_count() or 2) // 3))) as ex:
-        results = list(ex.map(_job, [(cmd, folder, t, system) for t in tracks]))
+        results = list(ex.map(_job, [(cmd, folder, t, system, motor) for t in tracks]))
     for name, lines, ok in results:
         print(f"  {name}: {lines[0]}")
         for ln in lines[1:]:
             print(f"      {ln}")
     if cmd == "comparar":
-        print("RESULTADO:", "todo idéntico" if all(ok for _, _, ok in results) else "hay diferencias (ver arriba)")
+        ok_all = all(ok for _, _, ok in results)
+        print("RESULTADO:", ("todo equivalente" if motor == "gpu" else "todo idéntico") if ok_all
+              else "hay diferencias (ver arriba)")
 
 
 if __name__ == "__main__":

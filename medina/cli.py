@@ -32,6 +32,9 @@ def parse_args(argv=None):
                     help="supersampling (2 = bordes limpios; 1 = píxel duro a media resolución)")
     ap.add_argument("--sistema", default="adn", choices=["adn", "neutro"],
                     help="adn = cada track tiene su sistema estelar según su ADN; neutro = el motor sin ADN")
+    ap.add_argument("--motor", default="gpu", choices=["cpu", "gpu"],
+                    help="gpu = shaders en la placa de video (unas 20 veces más rápido; si no hay moderngl u "
+                         "OpenGL, usa la CPU); cpu = numpy")
     ap.add_argument("--sin-warp", dest="warp", action="store_false",
                     help="sin velocidad de la luz (el salto al escapar del agujero en las liberaciones)")
     ap.add_argument("--no-cam", dest="cam", action="store_false",
@@ -142,9 +145,18 @@ def main(argv=None):
     t_len = (i1 - i0) / fps
 
     jobs = a.jobs or max(1, min(8, (os.cpu_count() or 2) - 2))
+    R = None
+    if a.motor == "gpu":
+        try:
+            from .gpu import GPURenderer
+            R = GPURenderer(score, W, H, a.title, a.font, a.ss, a.look)
+            jobs = 1                              # la GPU ya trabaja en paralelo
+        except Exception as e:  # noqa: BLE001  (sin moderngl o sin contexto de OpenGL)
+            print(f"  sin GPU ({e}): uso el motor de la CPU", flush=True)
     if stills is None and not a.score and jobs > 1 and (i1 - i0) >= jobs * 10 * fps:
         worker = ["--res", a.res, "--start", str(a.start), "--title", a.title, "--encoder-preset", a.x264,
-                  "--crf", str(a.crf), "--look", a.look, "--ss", str(a.ss)] + (["--font", a.font] if a.font else [])
+                  "--crf", str(a.crf), "--look", a.look, "--ss", str(a.ss), "--motor", "cpu"] \
+            + (["--font", a.font] if a.font else [])
         try:
             render_parallel(score, a.output, a.audio, i0, i1, jobs, t_start, t_len, worker, a.no_audio)
         except RuntimeError as e:
@@ -152,7 +164,8 @@ def main(argv=None):
         print(f"Listo: {a.output}  ({(time.time() - t0) / 60:.1f} min)")
         return
 
-    R = Renderer(score, W, H, a.title, a.font, a.ss, a.look)
+    if R is None:
+        R = Renderer(score, W, H, a.title, a.font, a.ss, a.look)
     if stills is not None:
         render_stills(R, stills, os.path.splitext(a.output)[0], a.start)
     else:

@@ -62,6 +62,7 @@ Si el audio viene casi mudo (típico de una exportación con pistas en solo), el
 | `--stills s1,s2,…` | guarda cuadros PNG en vez de video |
 | `--jobs N` | procesos en paralelo (0 = automático; `--jobs 4` calienta menos la máquina) |
 | `--ss 2` | supersampling (2 = bordes limpios; 1 = píxel duro a media resolución) |
+| `--motor gpu \| cpu` | `gpu` (por defecto): shaders en la placa de video, unas 20 veces más rápido (necesita moderngl y OpenGL 3.3+; si no están, usa la CPU); `cpu`: numpy |
 | `--sistema adn \| neutro` | `adn` (por defecto): cada track tiene su propio sistema estelar según su ADN; `neutro`: el motor sin ADN, igual para todos |
 | `--sin-warp` | sin velocidad de la luz |
 | `--no-cam` | sin movimiento de cámara |
@@ -150,6 +151,12 @@ El sistema `neutro` (`--sistema neutro`) reproduce exactamente el motor sin ADN.
   - punto de negro.
 - **Cámara**: zoom que empuja con la tensión y suelta en la liberación, giro lento con un paso seco en cada liberación, y golpe de zoom con temblor en cada kick.
 
+### El motor de GPU (`--motor gpu`)
+
+La misma partitura, dibujada con shaders (OpenGL vía moderngl): la GPU calcula la escena píxel por píxel (polvo o disco, lente, onda, horizonte, silencio) y todo el acabado (estela, fantasma, bloom, resplandor del horizonte, viñeta, punto de negro, grano). La CPU sigue dibujando lo disperso (estrellas y fenómenos, en capas que la GPU combina en el mismo orden), la firma y el glitch. El azar es el mismo (la misma función de hash, el mismo banco de grano), así que cada track conserva su imagen.
+
+No es idéntico bit a bit (la GPU redondea distinto), pero se ve igual: `tools/referencias.py comparar renders/_ref/base gpu` lo verifica contra las referencias de tus tracks, con tolerancia. A 1440p dibuja unos 30 cuadros por segundo (la CPU, menos de uno por proceso).
+
 ## Código
 
 | Archivo | |
@@ -164,6 +171,7 @@ El sistema `neutro` (`--sistema neutro`) reproduce exactamente el motor sin ADN.
 | `medina/space.py` | lo común a todos: estrellas, silencio, fenómenos de las capas, agujero negro |
 | `medina/post.py`, `medina/logo.py` | acabado reactivo y firma |
 | `medina/render.py` | arma cada cuadro a partir de la partitura (grilla, supersampling, cámara) |
+| `medina/gpu.py`, `medina/shaders/` | el motor de GPU: la escena y el acabado en shaders GLSL |
 | `medina/output.py`, `medina/cli.py` | video, tramos, cuadros sueltos, render en paralelo y línea de comandos |
 | `medina/presets.py` | presets, looks y paletas |
 | `master.py` | master técnico aparte: EQ, M/S, compresión de bus, limitador con objetivo de LUFS y true peak (necesita `pyloudnorm` y `pedalboard`) |
@@ -178,6 +186,7 @@ El modo viejo para sets (espectro, video del celular, barras, túnel) y los esti
 ```
 
 - **Track sintético** (`tests/synth.py`): tiene una historia conocida (kick con sub, un tramo filtrado, la liberación en un beat exacto, hats en corcheas y un sinte que entra), así que los tests no necesitan tu música. Verifican el tempo, los kicks, la liberación, la tensión, la respiración, los hats, las capas, la partitura (determinista, el viaje cambia solo en liberaciones, cámara y paletas acotadas), el sistema estelar y la velocidad de la luz, y el dibujo con el sistema neutro y con el del ADN (mucho negro, respiración a negro, cuadros sueltos independientes, tramos iguales al video completo). También hay cuadros de referencia en `tests/golden/`: si un cambio de look es intencional, se regeneran con `.venv/bin/python -m tests.make_golden`.
+- **Motor de GPU** (`tests/test_gpu.py`): se ve igual que el de la CPU (con tolerancia), cuadros sueltos independientes y tramos iguales al video completo. Si no hay moderngl u OpenGL, se saltean.
 - **Tus tracks** (`tests/test_real_tracks.py`): si están en `tracks/`, se verifican el tempo y las liberaciones validadas contra el espectrograma. Si no están, se saltean.
 
 Para verificar que un cambio no altera la imagen de tus tracks (por ejemplo, el paso a GPU):
@@ -196,4 +205,4 @@ Para verificar que un cambio no altera la imagen de tus tracks (por ejemplo, el 
 
 ## Próximo paso
 
-Pasar el render a GPU (moderngl / shaders): 3D real con profundidad, niebla y cámara, y vista previa en tiempo real.
+Sobre el motor de GPU: pasar también las estrellas y los fenómenos a la GPU (hoy son lo que más tarda), vista previa en tiempo real con el audio, y el agujero negro en 3D (raymarching, con la curvatura real de la luz).
