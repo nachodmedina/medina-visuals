@@ -23,6 +23,9 @@ PRESETS = {
     # el disco (inclinación y apertura: del sistema estelar); el abierto es el mismo visto más desde arriba
     "disco_abierto": dict(style="disk", K=16.0, open=2.2, glitch=False),
     "disco":         dict(style="disk", K=20.0, glitch=False),
+    # el agujero negro en 3D (motor de GPU): rayos de luz curvados por la gravedad. Es el video
+    # por defecto cuando hay GPU; sin GPU, el viaje.
+    "agujero":       dict(style="hole", glitch=False, bloom=1.25),
     # viaje: el track decide el estilo. Antes del primer silencio, mundo de partículas (polvo que
     # viene hacia la cámara); después, el disco en diagonal, cada vez más de canto. Solo cambia en
     # las liberaciones. Nada de anillos ni círculos: lo que se ve tiene que parecer parte del espacio.

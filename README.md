@@ -6,15 +6,17 @@ El motor escucha el track y decide solo: detecta el tempo, los kicks, los tramos
 
 ## La idea
 
-El video es un **viaje en el espacio hacia un agujero negro**. Cada estado del track tiene su lectura:
+El video es **un agujero negro**, y todo gira a su alrededor: oscuro, denso, pesado, hipnótico. Cada estado del track tiene su lectura:
 
 | El track… | En el video… |
 |---|---|
-| filtra el sub (tensión) | la **atracción**: todo cae en espiral hacia el horizonte, que crece |
-| suelta el sub / vuelve el kick (liberación) | el **escape**: todo sale disparado y la materia se enciende |
-| suena pleno | el viaje por el espacio: el túnel avanza hacia la cámara |
+| filtra el sub (tensión) | la **atracción**: la cámara cae hacia el agujero, la sombra crece, el cielo se apaga |
+| suelta el sub / vuelve el kick (liberación) | el **escape**: el tiempo se detiene un beat (solo un eco de luz da la vuelta al borde), vuelve, el espacio se contrae a la velocidad de la luz y sale una onda gravitacional |
+| suena pleno | la cámara orbita el agujero; el cielo, curvado por la gravedad, fluye a su alrededor |
+| el kick | el agujero late, como un corazón pesado |
 | se vacía | la **calma del vacío**: negro profundo y estrellas lejanas |
-| se desvanece al final | se cruza el horizonte: todo cae adentro |
+
+Todos los tracks comparten ese lenguaje, pero cada uno tiene **su propio agujero**, que sale de su ADN: la masa, la luz del borde, el cielo, la galaxia del fondo, el movimiento.
 
 Estética: minimalismo oscuro y duro, mucho negro. Paleta negro / blanco / violeta. MED1NA chico abajo a la derecha: letras negras con un filo tenue, que curvan el espacio que pasa detrás, como el agujero.
 
@@ -31,17 +33,20 @@ python3 -m venv .venv
 ## Uso
 
 ```bash
-# video completo (en paralelo, usa varios núcleos)
-.venv/bin/python brutal_viz.py tracks/mi_track.wav -o renders/mi_track.mp4 --preset viaje
+# video completo: el agujero negro (con GPU; sin GPU, el viaje)
+.venv/bin/python brutal_viz.py tracks/mi_track.wav -o renders/mi_track.mp4
 
 # para YouTube conviene 1440p: le da más calidad de compresión al grano y a los negros
-.venv/bin/python brutal_viz.py tracks/mi_track.wav -o renders/mi_track_1440p.mp4 --preset viaje --res 2560x1440
+.venv/bin/python brutal_viz.py tracks/mi_track.wav -o renders/mi_track_1440p.mp4 --res 2560x1440
 
 # preview de un tramo (en segundos): el análisis y la animación son los del track completo
-.venv/bin/python brutal_viz.py tracks/mi_track.wav -o renders/preview.mp4 --preset viaje --chunk 140-170
+.venv/bin/python brutal_viz.py tracks/mi_track.wav -o renders/preview.mp4 --chunk 140-170
 
 # cuadros sueltos en PNG
-.venv/bin/python brutal_viz.py tracks/mi_track.wav -o renders/cuadro.png --preset viaje --stills 95,150,167.2
+.venv/bin/python brutal_viz.py tracks/mi_track.wav -o renders/cuadro.png --stills 95,150,167.2
+
+# el viaje anterior (polvo y disco), en vez del agujero
+.venv/bin/python brutal_viz.py tracks/mi_track.wav -o renders/mi_track.mp4 --preset viaje
 ```
 
 Flujo recomendado: primero un fragmento de 10–30 s con `--chunk` y algunos `--stills`; el video completo, solo de la versión aprobada. Un tramo o un cuadro suelto salen iguales que en el video completo (la estela se precalienta 3 s antes).
@@ -54,7 +59,7 @@ Si el audio viene casi mudo (típico de una exportación con pistas en solo), el
 
 | Opción | Qué hace |
 |---|---|
-| `--preset viaje` | el track elige el estilo según su historia (ver abajo); `--list-presets` muestra todos |
+| `--preset agujero \| viaje` | `agujero` (por defecto con GPU): el agujero negro en 3D; `viaje`: polvo y disco, el track elige el estilo (por defecto sin GPU); `--list-presets` muestra todos |
 | `--look luz \| seco` | acabado reactivo (por defecto `luz`); `seco` = sin post-proceso |
 | `--paleta violeta \| violeta_rojo \| rgb` | `violeta` (por defecto); `violeta_rojo` alterna con rojo por kick en las liberaciones; `rgb` es la paleta original negro/blanco/rojo con RGB en las liberaciones |
 | `--res 2560x1440` | resolución de salida |
@@ -96,7 +101,20 @@ Se arma una sola vez recorriendo el track en orden, porque el movimiento se acum
 
 Después cualquier cuadro se dibuja solo con su entrada. Por eso los tramos, los cuadros sueltos y el render en paralelo salen iguales sin "rebobinar", y por eso la partitura es el contrato con el futuro render en GPU. No depende de la resolución de salida.
 
-### 3. El viaje (`--preset viaje`)
+### 3. El agujero negro (`--preset agujero`, `medina/shaders/hole.frag`)
+
+Cada píxel es un rayo de luz que se curva por la gravedad (geometría de Schwarzschild): lo que cae es negro absoluto; lo que roza la esfera de fotones deja la luz del borde; lo que escapa ve el cielo, curvado.
+
+- **La luz del borde**: un eclipse finísimo, más intenso de un lado, que ondula con el beat del track; late con el kick y titila con los hats al final de la tensión.
+- **El cielo**: estrellas y una banda galáctica (polvo y estrellas lejanas) fijas en el espacio. Cerca del agujero se doblan, se duplican y se cierran en anillos: el espacio-tiempo deformado.
+- **La cámara con masa**: orbita el agujero (acelera en los drops, casi se detiene en las tensiones); todo se mueve con inercia, nada a saltos.
+- **La tensión**: la cámara cae hacia el agujero, la sombra crece, el cielo se apaga.
+- **La liberación**, en secuencia: el impacto; el **tiempo se detiene** un beat (solo un **eco de luz** da la vuelta al borde); el tiempo vuelve (acelera un momento para recuperar lo perdido, así la imagen sigue con la música), el espacio se contrae a la **velocidad de la luz** (aberración relativista) y sale una **onda gravitacional** que cruza todo. Más intenso cuanto más larga fue la tensión.
+- **Cada track, su agujero** (de su ADN): la masa y la atracción (vorágine), el borde más grueso (densidad) o más ondulado (caos), blanco o violeta (luz), dónde cae su lado encendido, cuánto cielo hay (vacío), la orientación, el polvo y el brillo de su galaxia, la velocidad de la órbita y del latido (energía).
+
+Necesita el motor de GPU.
+
+### El viaje (`--preset viaje`)
 
 El estilo cambia solo en las liberaciones, de a un escalón:
 

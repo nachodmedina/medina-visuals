@@ -19,8 +19,9 @@ def parse_args(argv=None):
                                  description="Visuales audio-reactivas de MED1NA: el track decide el viaje.")
     ap.add_argument("audio", nargs="?", help="archivo de audio (wav, aiff, flac, mp3...)")
     ap.add_argument("-o", "--output", default="visual.mp4", help="video de salida (o base de los PNG con --stills)")
-    ap.add_argument("--preset", default="viaje", choices=sorted(PRESETS),
-                    help="viaje (el track elige el estilo) o un estilo fijo")
+    ap.add_argument("--preset", default=None, choices=sorted(PRESETS),
+                    help="agujero (por defecto con GPU: el agujero negro en 3D), viaje (el track elige el "
+                         "estilo; por defecto sin GPU) o un estilo fijo")
     ap.add_argument("--look", default="luz", choices=sorted(LOOKS),
                     help="acabado reactivo: luz, o seco = sin post-proceso")
     ap.add_argument("--paleta", default="violeta", choices=sorted(PALETTES),
@@ -64,6 +65,18 @@ def parse_args(argv=None):
     if a.audio is None and not a.list_presets:
         ap.error("falta el archivo de audio")
     return a
+
+
+def resolve_engine(a):
+    """El agujero negro necesita la GPU: sin ella, el motor de la CPU y el viaje."""
+    from .gpu import available
+    if a.motor == "gpu" and not a.score and not available():
+        print("  sin GPU (moderngl / OpenGL): uso el motor de la CPU", flush=True)
+        a.motor = "cpu"
+    if a.preset is None:
+        a.preset = "agujero" if a.motor == "gpu" else "viaje"
+    if PRESETS[a.preset]["style"] == "hole" and a.motor != "gpu":
+        sys.exit("El agujero negro en 3D necesita el motor de GPU (--motor gpu).")
 
 
 def listen(a, fps):
@@ -120,6 +133,7 @@ def main(argv=None):
         with open(a.score, "rb") as fh:
             score = pickle.load(fh)
     else:
+        resolve_engine(a)
         score = listen(a, a.fps)
     fps, n = score.fps, score.n
 
@@ -152,6 +166,8 @@ def main(argv=None):
             R = GPURenderer(score, W, H, a.title, a.font, a.ss, a.look)
             jobs = 1                              # la GPU ya trabaja en paralelo
         except Exception as e:  # noqa: BLE001  (sin moderngl o sin contexto de OpenGL)
+            if PRESETS[score.preset]["style"] == "hole":
+                sys.exit(f"El agujero negro en 3D necesita la GPU ({e}).")
             print(f"  sin GPU ({e}): uso el motor de la CPU", flush=True)
     if stills is None and not a.score and jobs > 1 and (i1 - i0) >= jobs * 10 * fps:
         worker = ["--res", a.res, "--start", str(a.start), "--title", a.title, "--encoder-preset", a.x264,
