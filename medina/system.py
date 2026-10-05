@@ -21,7 +21,7 @@ class StarSystem:
     tilt: float = -24.0            # inclinación del disco en grados (negativo: diagonal que sube)
     incl: float = 0.21             # apertura del disco (0.16 = casi de canto; 0.32 = elipse abierta)
     orbit: float = 1.0             # velocidad orbital (giro de todo el sistema)
-    matter: float = 1.0            # densidad de materia (partículas, órbitas, arcos)
+    matter: float = 1.0            # densidad de materia (partículas y órbitas)
     turbulence: float = 1.0        # ondas espirales y onda gravitacional
     stars: int = 900               # estrellas de fondo
     light: float = 1.0             # resplandor: bloom y halo del horizonte

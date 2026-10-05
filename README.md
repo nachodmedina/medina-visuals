@@ -99,13 +99,12 @@ Después cualquier cuadro se dibuja solo con su entrada. Por eso los tramos, los
 
 El estilo cambia solo en las liberaciones, de a un escalón:
 
-**brillos → puntos → estelas → disco**
+**brillos → puntos → disco abierto → disco**
 
 Todo lo que se ve tiene que parecer parte del espacio: nada de anillos ni formas geométricas marcadas. El kick pega en la luz (enciende), no en la forma (casi no agranda ni estira).
 
 - **Partículas** (brillos, puntos): viven sobre un túnel radial y viajan hacia la cámara. Tienen profundidad: la mayoría tenues, pocas brillantes.
-- **Estelas**: materia en órbita, más rápida cerca del agujero. La mayoría son tenues y brillan más cerca del horizonte, con anillos densos y huecos.
-- **Disco**: el disco de acreción visto en diagonal, casi de canto (tipo Gargantua); la lente dobla la parte de atrás alrededor del horizonte. Su inclinación y su apertura son las del sistema estelar del track.
+- **Disco**: el disco de acreción en diagonal (tipo Gargantua): materia en órbita, más rápida cerca del agujero; la mayoría tenue, más brillante cerca del horizonte, con anillos densos y huecos. La lente dobla la parte de atrás alrededor del horizonte. Primero se ve **abierto** (más desde arriba) y después **casi de canto**. Su inclinación y su apertura son las del sistema estelar del track.
 
 En todos los estilos:
 
@@ -161,7 +160,7 @@ El sistema `neutro` (`--sistema neutro`) reproduce exactamente el motor sin ADN.
 | `medina/score.py` | la partitura: el viaje, el movimiento, la cámara y el color de cada cuadro |
 | `medina/emotion.py` | la capa emocional: qué emoción transmite cada momento (incertidumbre, miedo, esperanza, enigma, soledad, fuerza, vulnerabilidad), las secciones del track y su ADN. La fuerza marca la velocidad de la luz |
 | `medina/system.py` | el sistema estelar de cada track, a partir de su ADN |
-| `medina/styles.py` | los estilos (partículas, arcos, estelas, disco) y la lente gravitacional |
+| `medina/styles.py` | los estilos (partículas y disco) y la lente gravitacional |
 | `medina/space.py` | lo común a todos: estrellas, silencio, fenómenos de las capas, agujero negro |
 | `medina/post.py`, `medina/logo.py` | acabado reactivo y firma |
 | `medina/render.py` | arma cada cuadro a partir de la partitura (grilla, supersampling, cámara) |
@@ -170,7 +169,7 @@ El sistema `neutro` (`--sistema neutro`) reproduce exactamente el motor sin ADN.
 | `master.py` | master técnico aparte: EQ, M/S, compresión de bus, limitador con objetivo de LUFS y true peak (necesita `pyloudnorm` y `pedalboard`) |
 | `tracks/`, `renders/` | locales, fuera del repo |
 
-El modo viejo para sets (espectro, video del celular, barras, túnel) y los estilos que el viaje ya no usa quedaron en la etiqueta `v0.1-antes-de-modularizar`.
+El modo viejo para sets (espectro, video del celular, barras, túnel) y los estilos que el viaje ya no usa quedaron en la etiqueta `v0.1-antes-de-modularizar`. Los arcos y las órbitas vistas de frente (que se descartaron por no parecer parte del espacio) quedaron en el commit `b68817f`.
 
 ## Tests
 

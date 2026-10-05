@@ -17,14 +17,9 @@ PALETTES = {"violeta": VIOLET, "violeta_rojo": [VIOLET, RED], "rgb": None}
 # Cada preset = un estilo + parámetros. Todos leen las mismas señales del track
 # (kick, tensión, liberación, caos, hats, capas); el preset solo cambia el lenguaje.
 PRESETS = {
-    # partículas sobre el túnel: viajan hacia la cámara y crecen con la distancia
+    # partículas sobre el túnel (polvo): viajan hacia la cámara
     "brillos":       dict(style="dots", N=88, Kd=13, p=0.03, flicker=4, plus=True, dot=0.2),
     "puntos":        dict(style="dots", N=48, Kd=7.5, p=0.22),
-    "puntos_densos": dict(style="dots", N=80, Kd=12, p=0.32, dot=0.36),
-    # anillos fragmentados que giran en sentidos opuestos y engranan con el kick
-    "arcos":         dict(style="arcs", K=3.2),
-    # espacio: materia en órbita y el disco de acreción visto casi de canto (tipo Gargantua)
-    "estelas":       dict(style="streaks", K=14.0, glitch=False),
     # el disco (inclinación y apertura: del sistema estelar); el abierto es el mismo visto más desde arriba
     "disco_abierto": dict(style="disk", K=16.0, open=2.2, glitch=False),
     "disco":         dict(style="disk", K=20.0, glitch=False),

@@ -155,43 +155,6 @@ def draw_particles(grid, fr):
     return levels(I, acc)
 
 
-def draw_arcs(grid, fr):
-    """Anillos siempre partidos en arcos irregulares; cada anillo gira en sentido contrario al
-    vecino, a su propia velocidad, y engrana medio segmento en cada kick.
-    Pocos, gruesos, mucho negro; hueco en el centro (nada de diana)."""
-    P, st, c, kc = fr.P, fr.st, fr.c, fr.kc
-    K = P.get("K", 3.2)
-    u = K * lens(grid, fr) - st["ph"]
-    n = np.floor(u)
-    f = u - n
-    ni = n.astype(np.int32)
-    # tabla por anillo (ids de anillo en un rango chico): sentido, velocidad, segmentos
-    ids = np.arange(-64, 64, dtype=np.int32)
-    hsp = hash32(ids + 300, np.zeros_like(ids) + 1, 0)
-    hsg = hash32(ids + 600, np.zeros_like(ids) + 2, st["mut"])
-    nseg = np.floor(5 + (5 + 8 * c["chaos"]) * hsg).astype(np.int32)       # 5..18 segmentos
-    sgn = np.where(ids % 2 == 0, 1.0, -1.0)
-    ang = sgn * (st["rot"] * (0.6 + 1.2 * hsp) * 2.2) + kc * np.pi / nseg * sgn
-    ang = (ang + fr.roll).astype(np.float32)
-    k = (ni + 64) % 128
-    a = np.mod((grid.TH + ang[k] + fr.lensT) * (1 / (2 * np.pi)), 1.0) * nseg[k]
-    sg = np.floor(a).astype(np.int32)
-    fa = a - sg
-    hseg = hash32(ni + 900, sg, st["mut"])
-    keep = hseg < (0.55 + 0.15 * c["chaos"])
-    keep &= (fa > 0.04) & (fa < 0.96)                                      # corte seco entre arcos
-    w = st["wt"][ni % 32] * (P.get("dens", 0.7) * fr.sys.matter)
-    if c["closed"]:
-        on = (f < np.clip((0.08 + 0.10 * c["mid"]) * w * thin(c), 0.015, 0.5)) & erode(ni, c)
-    else:
-        duty = np.clip((0.22 + 0.30 * c["kick"]) * w, 0.05, 0.85)
-        duty = np.minimum(duty, 0.30 * K / (grid.RR + 0.3))                # los de afuera no se engordan de más
-        on = f < duty
-    on &= keep
-    acc = on & (hash32(ni + 1200, sg, kc // 8) < (0.14 + 0.22 * c["chaos"]) * fr.sys.accent)
-    return on.astype(np.uint8) + acc.astype(np.uint8)
-
-
 def _orbits(grid, fr, Lr, ang_src, K, lw_px, wl_scale=None):
     """Materia en órbita: carriles en log(r) (en la tensión se contraen hacia el agujero) con
     estelas que giran a velocidad orbital (las de adentro, más rápido; el kick las estira).
@@ -245,14 +208,6 @@ def _orbits(grid, fr, Lr, ang_src, K, lw_px, wl_scale=None):
     return I, acc, li
 
 
-def draw_streaks(grid, fr):
-    """Estelas: materia en órbita alrededor del agujero, curvada por la lente."""
-    K = fr.P.get("K", 14.0)
-    L = lens(grid, fr)
-    I, acc, _ = _orbits(grid, fr, L, grid.TH + fr.lensT + fr.roll, K, 0.55 * grid.tg)
-    return levels(I, acc)
-
-
 def draw_disk(grid, fr):
     """Disco de acreción visto casi de canto, en diagonal: una banda de estelas que cruza el
     agujero; la lente dobla la parte de atrás alrededor del horizonte (la imagen de Gargantua).
@@ -280,4 +235,4 @@ def draw_disk(grid, fr):
     return levels(I, (I > 0) & (doppler | acc))
 
 
-STYLES = {"dots": draw_particles, "arcs": draw_arcs, "streaks": draw_streaks, "disk": draw_disk}
+STYLES = {"dots": draw_particles, "disk": draw_disk}
