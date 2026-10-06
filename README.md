@@ -30,6 +30,23 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt     # para correr los tests
 ```
 
+### En Windows (por ejemplo, una PC con placa NVIDIA)
+
+1. Instalar [Python 3.13](https://www.python.org/downloads/) (marcar "Add python.exe to PATH"), [Git](https://git-scm.com/download/win), ffmpeg (`winget install ffmpeg` en PowerShell) y el driver de NVIDIA al día.
+2. Clonar el repo (es privado: Git pide iniciar sesión en GitHub):
+   ```powershell
+   git clone https://github.com/nachodmedina/medina-visuals.git
+   cd medina-visuals
+   ```
+3. Crear el entorno e instalar:
+   ```powershell
+   py -3.13 -m venv .venv
+   .venv\Scripts\pip install -r requirements.txt -r requirements-dev.txt
+   ```
+4. Copiar los tracks a `tracks\` (no están en el repo).
+5. Probar: `.venv\Scripts\python -m pytest -q`. Los tests de GPU tienen que pasar (si se saltean, no hay OpenGL: revisar el driver).
+6. Renderizar: `.venv\Scripts\python brutal_viz.py "tracks\mi track.wav" -o "renders\mi track.mp4" --res 2560x1440`
+
 ## Uso
 
 ```bash
