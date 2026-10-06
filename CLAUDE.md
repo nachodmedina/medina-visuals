@@ -31,4 +31,19 @@ Contar con sonidos cómo se desarrolló el universo hasta hoy, por sus eventos c
 - **KOSMOS**: Nucleosíntesis · Materia Oscura · Radiación de Fondo · Colapso · Gran Congelamiento
 - **Bonus**: Energía del vacío
 
-Se trabaja de a una escena, a medida que el usuario termina cada track.
+Acordado con el usuario:
+- La escena de cada track se elige por su título (la única decisión manual); el movimiento, la tensión, las liberaciones y las variantes salen del audio, como siempre.
+- Todas las escenas comparten el lenguaje: paleta, mucho negro, física real (luz trazada por rayos), la gramática tensión/liberación, la inercia y la dilatación del tiempo.
+- Cada track termina donde empieza el siguiente: el EP se puede ver como una sola película.
+- Se trabaja de a una escena, con previews, a medida que el usuario termina cada track. Él va a pasar primero los tres de KHAOS.
+
+Primeras ideas por escena (propuestas, todavía sin aprobar; ajustarlas con el usuario):
+- **Singularidad**: negro total y un único punto que late con el kick; en la primera liberación nace todo.
+- **Radio de Schwarzschild**: el agujero negro actual (`--preset agujero`).
+- **Inflación**: el espacio se estira exponencialmente; las fluctuaciones cuánticas crecen hasta volverse la estructura del universo.
+- **Nucleosíntesis**: plasma caliente; partículas que chocan y se funden, y todo se va enfriando.
+- **Materia Oscura**: una estructura invisible (la red cósmica) que solo se ve por cómo curva la luz de lo que hay detrás. Reusa la lente del agujero: de las más cercanas.
+- **Radiación de Fondo**: la primera luz del universo, un resplandor tenue y moteado que lo rodea todo.
+- **Colapso**: nubes de gas que caen sobre sí mismas y encienden las primeras estrellas, o una estrella que colapsa en agujero negro (cierra con Schwarzschild).
+- **Gran Congelamiento**: el futuro lejano; las estrellas se apagan de a una, todo se aleja, frío y oscuridad. La más minimalista.
+- **Energía del vacío** (bonus): el vacío puro, donde aparecen y se aniquilan pares de partículas.
