@@ -5,7 +5,7 @@ import os
 import numpy as np
 import pytest
 
-from medina.analysis import ANALYSIS_SR, analyze
+from medina.analysis import ANALYSIS_SR, analyze, layer_attacks
 from medina.audio import detect_bpm, load_audio
 
 TRACKS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tracks")
@@ -35,3 +35,10 @@ def test_track_real(name):
     for r in v["rises"]:
         assert A["tension"][r] == 0              # la tensión termina en la liberación
         assert A["breath"][r - 1]                # y el beat anterior es la respiración
+    # los ataques de las capas: solo mientras la capa suena y fuera del silencio, a un ritmo de notas
+    Ly = A["layers"]
+    at = layer_attacks(Ly, 30, A["silent"])
+    assert all(Ly["on"][b, k] and not A["silent"][b] for b, k, _ in at)
+    for k in range(Ly["act"].shape[1]):
+        rate = sum(1 for _, j, _ in at if j == k) / (Ly["on"][:, k].sum() / 30)
+        assert 0.5 < rate < 5.0

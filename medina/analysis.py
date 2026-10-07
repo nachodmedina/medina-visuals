@@ -400,6 +400,27 @@ def detect_layers(lspec, cf, fps, silent, K=8):
     return dict(act=gact, on=gon, first=gfirst, center=gcen, order=list(range(G)))
 
 
+def layer_attacks(Ly, fps, silent=None, thr=0.35, gap=0.2):
+    """Los ataques de cada capa (cada nota o golpe que se distingue): la actividad sube más de `thr`
+    en ~0.1 s mientras la capa suena (y el track no está en silencio). Devuelve
+    [(cuadro, capa, fuerza 0..1)], ordenados, separados al menos `gap` segundos dentro de cada capa."""
+    if not Ly:
+        return []
+    act = Ly["act"].astype(np.float64)
+    lag = max(1, int(round(0.1 * fps)))
+    quiet = np.zeros(len(act), bool) if silent is None else np.asarray(silent, bool)
+    out = []
+    for k in range(act.shape[1]):
+        a = act[:, k]
+        d = a - np.concatenate([np.full(lag, a[0]), a[:-lag]])
+        last = -(10 ** 9)
+        for i in np.flatnonzero((d > thr) & Ly["on"][:, k] & ~quiet):
+            if i - last > gap * fps:
+                out.append((int(i), k, float(np.clip(d[i:i + lag].max() / 0.9, 0.35, 1.0))))
+                last = i
+    return sorted(out)
+
+
 def bursts(A, fps, thr=8.0, gap=1.5):
     """Estallidos del rango medio (700 Hz - 3 kHz) por encima de lo que suena estable: barridos que
     caen, ráfagas. A cada banda se le resta su mediana de los últimos ~12 s (los tonos sostenidos no

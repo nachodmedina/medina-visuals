@@ -12,7 +12,7 @@ import os
 
 import numpy as np
 
-from .analysis import bursts
+from .analysis import bursts, layer_attacks
 from .logo import Logo
 from .noise import hash32
 from .post import Post
@@ -635,6 +635,10 @@ class GPURenderer:
         - la cámara: avanza y gira muy despacio, siempre para el mismo lado (sin vaivén ni rebotes);
         - la tensión: el campo se erosiona y se oscurece (solo quedan las fluctuaciones finas);
         - las capas: cada sonido enciende su escala (grave: lo grueso; agudo: lo fino);
+        - las luces: cada capa es una luz dentro de la red que viaja con la cámara en su lugar del espacio
+          de adelante (no se ve la fuente: solo los filamentos que le pasan cerca), con la presencia de la
+          capa; lo grave, más grande. Cada ataque de una capa enciende un destello breve en su zona, fijo
+          en el espacio (la cámara pasa de largo);
         - el final: el recalentamiento (el campo se vuelve luz) y el apagón."""
         if getattr(self, "_im", None) is not None:
             return self._im
@@ -676,21 +680,85 @@ class GPURenderer:
         # las capas
         Ly = A.get("layers") or dict(act=np.zeros((n, 0)), on=np.zeros((n, 0), bool), center=np.zeros(0))
         G = min(4, Ly["act"].shape[1])
-        acts, xs = np.zeros((G, n)), np.zeros(G)
+        acts, pres, xs = np.zeros((G, n)), np.zeros((G, n)), np.zeros(G)
         for k in range(G):
             gate = np.clip(sp(Ly["on"][:, k].astype(np.float64), fps, 0.25, 1.0), 0, 1)
-            acts[k] = np.clip(sp(np.clip(Ly["act"][:, k], 0, 1.5) * gate, fps, 2.0, 0.9, 0.3, 1.0), 0, 1.4)
+            a = np.clip(Ly["act"][:, k], 0, 1.5) * gate
+            acts[k] = np.clip(sp(a, fps, 2.0, 0.9, 0.3, 1.0), 0, 1.4)
+            pres[k] = np.clip(sp(a, fps, 0.5, 1.0, 0.12, 1.0), 0, 1.2)       # la presencia: lenta
             xs[k] = 0.15 + 0.75 * float(np.clip(np.log2(max(Ly["center"][k], 300) / 300) / 4.5, 0, 1))
+        # las luces de las capas: repartidas alrededor del centro, a su profundidad, y giran muy despacio
+        # (siempre para el mismo lado, con el tiempo de la imagen)
+        oc = (xs - 0.15) / 0.75                                 # 0 grave .. 1 agudo
+        lr = 0.1 + 0.6 * (1 - oc) ** 1.5                        # radio de cada luz
+        lw = lr / max(lr.max(), 1e-9) if G else lr              # peso: la más grande domina
+        gl = np.random.default_rng([sc.seed, 4343])
+        phi0 = gl.uniform(0, 2 * np.pi) + 2 * np.pi * np.arange(G) / max(G, 1) + gl.normal(0, 0.3, G)
+        rho = gl.uniform(0.25, 0.6, G)
+        dep = 0.7 + 0.5 * gl.uniform(size=G)
+        spin = np.cumsum(0.05 * (0.4 + e_s) * speed) / fps * (1.0 if gl.uniform() < 0.5 else -1.0)
+        # los destellos: en el espacio de adelante, cerca de la luz de su capa. Para no saturar, las capas
+        # chicas (agudas) solo encienden sus ataques más fuertes, y cada luz necesita un respiro entre
+        # destellos (más largo cuanto más grande: la del synth, más o menos un beat)
+        tau = np.cumsum(speed) / fps                            # el tiempo de la imagen
+        fl, last = [], np.full(G, -(10 ** 9))
+        for b, k, s in layer_attacks(Ly, fps, A.get("silent")):
+            if k >= G or s * lw[k] < 0.3 or b - last[k] < (0.2 + 0.25 * lw[k]) * fps:
+                continue
+            last[k] = b
+            rg = np.random.default_rng([sc.seed, 4444, k, b])
+            ph = phi0[k] + spin[b] + rg.normal(0, 0.6)
+            r_ = float(np.clip(rho[k] + rg.normal(0, 0.2), 0.05, 0.95))
+            t_ = float(np.clip(dep[k] + rg.normal(0, 0.25), 0.45, 1.8))
+            pc = self._ahead(ph, r_, t_)
+            fl.append((b, cam[b] + rt[b] * pc[0] + up[b] * pc[1] + fwv[b] * pc[2], s * lw[k],
+                       (0.4 + 0.3 * lw[k]) * lr[k], 0.08 + 0.08 * lw[k]))
         # el final: recalentamiento y apagón
         fd = np.clip(A["fade"].astype(np.float64), 0, 1)
         smt = lambda x: np.clip(x, 0, 1) ** 2 * (3 - 2 * np.clip(x, 0, 1))
         reheat = 0.4 * smt(fd / 0.5) * (1 - smt((fd - 0.5) / 0.5))
         fade_k = 1 - smt((fd - 0.45) / 0.55)
         self._im = dict(z=z, kick=kick, tens=tens, hat=hat, acts=acts, xs=xs, cam=cam, v=v,
-                        fw=fwv, rt=rt, up=up, reheat=reheat, fade_k=fade_k)
+                        fw=fwv, rt=rt, up=up, reheat=reheat, fade_k=fade_k, pres=pres, lr=lr, lw=lw, phi0=phi0,
+                        rho=rho, dep=dep, spin=spin, tau=tau, flashes=fl,
+                        fl_b=np.array([f[0] for f in fl], np.int64))
         return self._im
 
+    LANT_K, FLASH_K = 7.0, 15.0
+    INFL_FOCAL = 1.4
+
+    def _ahead(self, ph, r, t):
+        """Un punto del espacio de adelante (coordenadas de la cámara): a `r` del centro de la pantalla
+        (en media altura, más abierto en horizontal), en la dirección `ph`, a profundidad `t`."""
+        return np.array([1.4 * r * np.cos(ph), r * np.sin(ph), self.INFL_FOCAL]) * t / self.INFL_FOCAL
+
+    def _infl_lights(self, i):
+        """Las luces de este cuadro (las 6 más intensas): posición en coordenadas de la cámara,
+        intensidad y radio."""
+        im, fps = self._im, self.score.fps
+        out = []
+        for k in range(len(im["xs"])):
+            I = self.LANT_K * float(im["pres"][k, i] * im["lw"][k])
+            if I < 0.01:
+                continue
+            pc = self._ahead(im["phi0"][k] + im["spin"][i], im["rho"][k], im["dep"][k])
+            out.append((*pc, I, im["lr"][k]))
+        j0, j1 = np.searchsorted(im["fl_b"], [i - 4 * fps, i + 1])
+        C, tau = im["cam"][i], im["tau"]
+        for b, pw, s, R, dec in im["flashes"][j0:j1]:
+            age = tau[i] - tau[b]
+            I = self.FLASH_K * s * np.exp(-age / dec)
+            if I < 0.01:
+                continue
+            d = pw - C
+            pz = float(np.dot(d, im["fw"][i]))
+            if pz < 0.05:                                       # ya quedó atrás
+                continue
+            out.append((float(np.dot(d, im["rt"][i])), float(np.dot(d, im["up"][i])), pz, I, R))
+        return sorted(out, key=lambda x: -x[3])[:6]
+
     INFL_K = 30.0
+    INFL_THR, INFL_FINE = 0.032, (0.14, 0.55)    # ancho de los filamentos; peso de lo fino (con los hats)
 
     def _inflation(self, i):
         """La Inflación (shaders/inflation.frag)."""
@@ -701,19 +769,26 @@ class GPURenderer:
         ly = np.zeros((4, 4), np.float32)
         for k in range(len(im["xs"])):
             ly[k] = (im["xs"][k], im["acts"][k, i], 0.0, 0.0)
+        la, lb = np.zeros((6, 4), np.float32), np.zeros((6, 4), np.float32)
+        lights = self._infl_lights(i)
+        for j, (x, y, t_, I, R) in enumerate(lights):
+            la[j] = (x, y, t_, I)
+            lb[j] = (R, 0.0, 0.0, 0.0)
         p = self.p_infl
         self._noise3d().use(0)
-        _set(p, out_size=(self.S * g.tw, self.S * g.th), aspect=float(g.tw / g.th), focal=1.4,
+        _set(p, out_size=(self.S * g.tw, self.S * g.th), aspect=float(g.tw / g.th), focal=self.INFL_FOCAL,
              fw=tuple(im["fw"][i]), rt=tuple(im["rt"][i]), up=tuple(im["up"][i]), cam=tuple(im["cam"][i]), noise=0,
              zf=float(z - np.floor(z)), zi=int(np.floor(z)), zt=z, base_f=0.2, hz_off=1.0 - 0.6 * 4,
              dens_k=self.INFL_K * (1 - 0.5 * tens) * (0.7 + 0.3 * sy.matter) * (1 + 1.5 * float(sc.frames[i].st.get("glow", 0.0))),
-             thr=0.036 * (1 - 0.45 * tens), pxs=2.0 / g.th,
+             thr=self.INFL_THR * (1 - 0.45 * tens), pxs=2.0 / g.th,
              sigma=0.3, depth=2.6, expo=1.6,
-             fine_k=0.18 + 0.7 * float(im["hat"][i]), coarse_k=1.0, kick=float(max(im["kick"][i], 0)),
+             fine_k=self.INFL_FINE[0] + self.INFL_FINE[1] * float(im["hat"][i]), coarse_k=1.0, kick=float(max(im["kick"][i], 0)),
              tint=float(1 - np.clip((sy.light - 0.7) / 0.7, 0, 1) * 0.6),
              light=float(max(sy.light, 0.75)), reheat=float(im["reheat"][i]), fade_k=float(im["fade_k"][i]),
-             accent=tuple(np.asarray(self.accent, np.float32) / 255), n_ly=len(im["xs"]))
+             accent=tuple(np.asarray(self.accent, np.float32) / 255), n_ly=len(im["xs"]), n_lt=len(lights))
         p["ly"].write(ly.tobytes())
+        p["lt_a"].write(la.tobytes())
+        p["lt_b"].write(lb.tobytes())
         self.f_scene.use()
         self.vao["infl"].render()
 

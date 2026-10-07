@@ -8,6 +8,9 @@
 //   (las nuevas aparecen finas; las grandes se pierden). Las finas, por dentro del horizonte,
 //   fluctúan; al salir del horizonte se congelan y crecen quietas: así nace la estructura.
 // - Cada sonido del track enciende su escala: lo grave, los filamentos grandes; lo agudo, lo fino.
+// - Cada sonido es además una luz dentro de la red (y cada ataque, un destello breve): no se ve la
+//   fuente, solo los filamentos que le pasan cerca, como un farol en una nebulosa (blancos cerca,
+//   violetas al alejarse).
 // - El recalentamiento: al final, el campo se vuelve luz y se apaga.
 
 uniform vec2 out_size;
@@ -24,6 +27,9 @@ uniform vec3 accent;
 uniform float pxs;                       // un píxel de salida en unidades de pantalla (antialias)
 uniform int n_ly;
 uniform vec4 ly[4];                      // capas: escala (0 grueso .. 1 fino), actividad, blancura, -
+uniform int n_lt;
+uniform vec4 lt_a[6];                    // luces: posición (coordenadas de la cámara) e intensidad
+uniform vec4 lt_b[6];                    // luces: radio, -, -, -
 out vec4 color;
 
 const int NO = 4;
@@ -39,10 +45,11 @@ vec3 off(int J) { return vec3(hash1(J * 3 + 1), hash1(J * 3 + 2), hash1(J * 3 + 
 // filamento (una línea en 3D); el de tres, un nudo. Así cada rayo cruza pocos: negro con hilos de luz.
 float shell(float n, float w) { return max(0.0, 1.0 - abs(n - 0.5) / w); }
 
-// densidad (x) y blancura (y) del campo en un punto (en coordenadas de la cámara)
-vec2 field(vec3 pc, float t) {
+// densidad (x), blancura (y) y entorno de los filamentos (z: solo se ve si algo lo ilumina) del campo
+// en un punto (en coordenadas de la cámara)
+vec3 field(vec3 pc, float t) {
     vec3 pw = cam + rt * pc.x + up * pc.y + fw * pc.z;
-    float s = 0.0, white = 0.0;
+    float s = 0.0, white = 0.0, halo = 0.0;
     for (int j = 0; j < NO; j++) {
         float lvl = float(j) - zf;                       // -1..NO-1 (más alto = más fino)
         float x = (lvl + 1.0) / float(NO);               // 0 grueso .. 1 fino
@@ -60,11 +67,14 @@ vec2 field(vec3 pc, float t) {
         float node = shell(n.w, 1.4 * wd) * shell(n.x, 1.4 * wd) * shell(n.y, 1.4 * wd);
         float boost = 1.0;
         for (int k = 0; k < n_ly; k++) boost += ly[k].y * 1.5 * exp(-pow((x - ly[k].x) / 0.2, 2.0));
-        float a = w * (fil * fil + 3.0 * node) * boost * mix(coarse_k, fine_k, x);
+        float sc = w * mix(coarse_k, fine_k, x);
+        float a = sc * (fil * fil + 3.0 * node) * boost;
         s += a;
         white += a * x;
+        float hw = shell(n.w, 2.6 * wd) * shell(n.x, 2.6 * wd);
+        halo += sc * hw * hw;
     }
-    return vec2(s, white / (s + 1e-4));
+    return vec3(s, white / (s + 1e-4), halo);
 }
 
 void main() {
@@ -77,12 +87,25 @@ void main() {
     for (int k = 0; k < 96; k++) {
         if (t > depth) break;
         float dt = 0.018 + 0.03 * t;
-        vec2 fd = field(dir * t, t);
+        vec3 fd = field(dir * t, t);
         float dn = fd.x * dens_k;
+        float dl = fd.z * dens_k * float(n_lt > 0);
         if (dn > 0.0001) {
             vec3 c = mix(violet, vec3(1.0), clamp(fd.y * 1.3, 0.0, 1.0));
             // lo que pasa pegado a la cámara no se vuelve una mancha: aparece desde un poco más lejos
             col += T * dn * c * exp(-t / (0.5 * depth)) * smoothstep(0.04, 0.25, t) * dt * (1.0 + 0.6 * kick);
+        }
+        if (dl > 0.0001) {
+            // las luces: iluminan los filamentos y su entorno cerca de ellas (cae rápido con la distancia)
+            vec3 pc = dir * t;
+            for (int j = 0; j < n_lt; j++) {
+                vec3 dd = pc - lt_a[j].xyz;
+                float q2 = dot(dd, dd) / (lt_b[j].x * lt_b[j].x);
+                vec3 lc = mix(vec3(1.0), violet, smoothstep(0.1, 1.5, q2));
+                col += T * dl * lc * lt_a[j].w / ((1.0 + q2) * (1.0 + q2)) * exp(-t / depth) * dt;
+            }
+        }
+        if (dn > 0.0001) {
             T *= exp(-sigma * dn * dt);
             if (T < 0.03) break;
         }
