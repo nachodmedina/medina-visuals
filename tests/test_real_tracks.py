@@ -16,6 +16,9 @@ VALIDATED = {
     # 0:16 y 4:34 son golpes sueltos de kick dentro del filtrado: no son liberaciones
     "Untitled13 14-Audio.wav":  dict(bpm=138.00, rises=[836, 1253, 1827, 2088, 2505, 2922, 3340, 5009, 5844,
                                                         6261, 7096, 8349]),
+    # EP: el sub filtrado vuelve cada 8 compases
+    "inflacion 24-Audio.wav":   dict(bpm=138.00, rises=[419, 836, 1253, 1671, 2088, 2923, 3340, 3549, 4175,
+                                                        4592, 5636]),
 }
 
 

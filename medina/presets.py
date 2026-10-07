@@ -30,6 +30,9 @@ PRESETS = {
     # punto que respira con el grave; a su alrededor el vacío hierve (fluctuaciones cuánticas) y cae
     # hacia él. Sin kick ni liberaciones: ni fantasma ni latido de la firma.
     "singularidad":  dict(style="singularity", glitch=False, ghost=False, pulse=False),
+    # Inflación (EP, motor de GPU): el espacio se estira exponencialmente y las fluctuaciones
+    # cuánticas crecen hasta volverse la estructura del universo.
+    "inflacion":     dict(style="inflation", glitch=False, ghost=False, bloom=1.2),
     # viaje: el track decide el estilo. Antes del primer silencio, mundo de partículas (polvo que
     # viene hacia la cámara); después, el disco en diagonal, cada vez más de canto. Solo cambia en
     # las liberaciones. Nada de anillos ni círculos: lo que se ve tiene que parecer parte del espacio.
@@ -42,7 +45,10 @@ PRESETS = {
 SCENES = {
     "singularidad": "singularidad",
     "radio de schwarzschild": "agujero",
+    "radio de schwarzchild": "agujero",
+    "inflacion": "inflacion",
 }
+GPU_STYLES = ("hole", "singularity", "inflation")       # escenas que solo dibuja el motor de GPU
 
 
 def scene_for(path):
@@ -52,7 +58,10 @@ def scene_for(path):
     name = os.path.splitext(os.path.basename(path or ""))[0]
     name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
     name = " ".join(name.replace("_", " ").replace("-", " ").split())
-    return SCENES.get(name)
+    for key, scene in SCENES.items():                  # el título, aunque Ableton le agregue "24 Audio"
+        if name == key or name.startswith(key + " "):
+            return scene
+    return None
 
 
 # Post-proceso reactivo. Cada efecto lee una señal del track:

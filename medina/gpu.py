@@ -85,10 +85,11 @@ class GPURenderer:
         prog = lambda frag: ctx.program(vertex_shader=vert, fragment_shader=_src(frag))
         self.p_scene, self.p_down = prog("scene.frag"), prog("lanczos.frag")
         self.p_hole, self.p_sing = prog("hole.frag"), prog("singularity.frag")
+        self.p_infl = prog("inflation.frag")
         tri = ctx.buffer(np.array([-1, -1, 3, -1, -1, 3], np.float32).tobytes())
         self.vao = {k: ctx.vertex_array(p, [(tri, "2f", "p")]) for k, p in
                     (("scene", self.p_scene), ("down", self.p_down), ("hole", self.p_hole),
-                     ("sing", self.p_sing))}
+                     ("sing", self.p_sing), ("infl", self.p_infl))}
         # escena a S x la salida; Lanczos horizontal (intermedio en 8 bits) y vertical
         self.t_scene = ctx.texture((self.S * g.tw, self.S * g.th), 4)
         self.f_scene = ctx.framebuffer([self.t_scene])
@@ -237,6 +238,9 @@ class GPURenderer:
         if P["style"] == "singularity":                 # antes de que exista nada: ni estrellas ni fenómenos
             self._singularity(i)
             return self._finish(f, i, A, P, None)
+        if P["style"] == "inflation":
+            self._inflation(i)
+            return self._finish(f, i, A, P, None)
         has_phen = 0
         if not silent:                                  # lo disperso: en la CPU
             self.lay_stars.fill(0)
@@ -315,8 +319,11 @@ class GPURenderer:
             dt = (1.0 if rate is None else float(rate[k])) / fps
             f, z = (f_up, z_up) if tgt > p else (f_dn, z_dn)
             w = 2 * np.pi * f
-            v += (w * w * (tgt - p) - 2 * z * w * v) * dt
-            p += v * dt
+            m = 1 if w * dt <= 1.0 else int(np.ceil(w * dt / 0.5))   # pasos grandes: en partes (estable)
+            h = dt / m
+            for _ in range(m):
+                v += (w * w * (tgt - p) - 2 * z * w * v) * h
+                p += v * h
             y[k] = p
         return y
 
@@ -369,7 +376,7 @@ class GPURenderer:
         hold, ease, catch = 1.0 * beat, 1.5 * beat, 3.0 * beat
         freeze, bump = np.zeros(n), np.zeros(n)
         echo_k, echo_q = np.zeros(n), np.zeros(n)
-        wave_amp, wave_dt = np.zeros(n), np.full(n, -1.0)
+        wave_amp, wave_dt, wave_imp = np.zeros(n), np.full(n, -1.0), np.zeros(n)
         idx = np.arange(n)
         sm = lambda x: np.clip(x, 0, 1) ** 2 * (3 - 2 * np.clip(x, 0, 1))
         for r in np.where(A["rise"])[0]:
@@ -396,8 +403,10 @@ class GPURenderer:
             neww = wa > wave_amp[sl]
             wave_amp[sl] = np.where(neww, wa, wave_amp[sl])
             wave_dt[sl] = np.where(neww, dw, wave_dt[sl])
+            wave_imp[sl] = np.where(neww, imp, wave_imp[sl])
         speed = 1 - freeze + bump
-        return dict(speed=speed, freeze=freeze, echo_k=echo_k, echo_q=echo_q, wave_amp=wave_amp, wave_dt=wave_dt)
+        return dict(speed=speed, freeze=freeze, echo_k=echo_k, echo_q=echo_q, wave_amp=wave_amp, wave_dt=wave_dt,
+                    wave_imp=wave_imp)
 
     def _traits(self):
         """El carácter del agujero de este track (de su sistema estelar / ADN)."""
@@ -615,6 +624,98 @@ class GPURenderer:
         p["ev_b"].write(eb.tobytes())
         self.f_scene.use()
         self.vao["sing"].render()
+
+    def _infl_motion(self):
+        """El movimiento de la Inflación (una vez por partitura, así cada cuadro se dibuja solo): el
+        viaje a través del campo. Nada elástico: avanza siempre, en una dirección, cada vez más rápido.
+        - la velocidad: un avance lento siempre (el rodar lento); crece con la energía; cada kick es un
+          empuje hacia adelante que se apaga sin volver; en la liberación el tiempo se detiene un beat y
+          después la velocidad crece exponencialmente medio compás (un "e-fold") y se asienta;
+        - el estiramiento: las fluctuaciones crecen y se congelan, sobre todo en los e-folds;
+        - la cámara: avanza y gira muy despacio, siempre para el mismo lado (sin vaivén ni rebotes);
+        - la tensión: el campo se erosiona y se oscurece (solo quedan las fluctuaciones finas);
+        - las capas: cada sonido enciende su escala (grave: lo grueso; agudo: lo fino);
+        - el final: el recalentamiento (el campo se vuelve luz) y el apagón."""
+        if getattr(self, "_im", None) is not None:
+            return self._im
+        sc = self.score
+        A, fps, sy = sc.analysis, sc.fps, sc.system
+        n, sp = len(sc.frames), self._spring
+        ons = A["onsets"]
+        bpm = 60 * fps / float(np.median(np.diff(ons))) if len(ons) > 1 else 128.0
+        rel = self._release_gesture(A, fps, bpm, n)
+        speed = rel["speed"]                                    # el paso del tiempo (0 en la quietud)
+        kick = np.clip(A["kick"].astype(np.float64), 0, 1.5)    # el empuje de cada kick (sin resorte)
+        closed = ~A["sub_on"].astype(bool) | A["break_zone"].astype(bool)
+        energy = np.where(closed, 0.05, 0.6 * A["low"] + 0.4 * A["mid"]).astype(np.float64)
+        e_s = np.clip(sp(energy, fps, 0.12, 1.0, rate=speed), 0, 1.5)
+        # se arma despacio; en la liberación se suelta de golpe (antes de que el tiempo se detenga)
+        tens = np.clip(sp(np.where(closed, A["tension"], 0.0).astype(np.float64), fps, 0.5, 1.0, 4.0, 1.0), 0, 1)
+        hat = np.clip(sp(A["hat"].astype(np.float64), fps, 6.0, 0.9, rate=speed), 0, 1.2)
+        # el e-fold: desde que el tiempo vuelve, la velocidad crece exponencialmente medio compás
+        T = 2 * 60 / bpm
+        dw, imp = rel["wave_dt"], rel["wave_imp"]
+        efold = np.where(dw < 0, 0.0, np.where(dw < T, (np.exp(4 * np.maximum(dw, 0) / T) - 1) / (np.exp(4) - 1),
+                                               np.exp(-(dw - T) / 1.6))) * imp
+        v = (0.12 + 0.55 * e_s + 0.45 * kick) * (0.6 + 0.4 * sy.orbit) + 3.2 * efold
+        z = np.cumsum((0.04 + 0.08 * e_s + 0.7 * efold) * speed) / fps
+        # la cámara: gira despacio alrededor de un eje fijo (siempre para el mismo lado) y avanza
+        g = np.random.default_rng([sc.seed, 5252])
+        f0 = g.normal(size=3)
+        f0 /= np.linalg.norm(f0)
+        ax = np.cross(f0, g.normal(size=3))
+        ax /= np.linalg.norm(ax)
+        th = np.cumsum(0.035 * (0.4 + e_s) * speed) / fps
+        c, s_ = np.cos(th)[:, None], np.sin(th)[:, None]
+        fwv = f0 * c + np.cross(ax, f0) * s_                    # (ax ⟂ f0: rotación simple)
+        cam = np.cumsum(fwv * (v * speed)[:, None], axis=0) / fps
+        upw = np.array([0.0, 1.0, 0.0])
+        rt = np.cross(upw, fwv)
+        rt /= np.linalg.norm(rt, axis=1, keepdims=True)
+        up = np.cross(fwv, rt)
+        # las capas
+        Ly = A.get("layers") or dict(act=np.zeros((n, 0)), on=np.zeros((n, 0), bool), center=np.zeros(0))
+        G = min(4, Ly["act"].shape[1])
+        acts, xs = np.zeros((G, n)), np.zeros(G)
+        for k in range(G):
+            gate = np.clip(sp(Ly["on"][:, k].astype(np.float64), fps, 0.25, 1.0), 0, 1)
+            acts[k] = np.clip(sp(np.clip(Ly["act"][:, k], 0, 1.5) * gate, fps, 2.0, 0.9, 0.3, 1.0), 0, 1.4)
+            xs[k] = 0.15 + 0.75 * float(np.clip(np.log2(max(Ly["center"][k], 300) / 300) / 4.5, 0, 1))
+        # el final: recalentamiento y apagón
+        fd = np.clip(A["fade"].astype(np.float64), 0, 1)
+        smt = lambda x: np.clip(x, 0, 1) ** 2 * (3 - 2 * np.clip(x, 0, 1))
+        reheat = 0.4 * smt(fd / 0.5) * (1 - smt((fd - 0.5) / 0.5))
+        fade_k = 1 - smt((fd - 0.45) / 0.55)
+        self._im = dict(z=z, kick=kick, tens=tens, hat=hat, acts=acts, xs=xs, cam=cam, v=v,
+                        fw=fwv, rt=rt, up=up, reheat=reheat, fade_k=fade_k)
+        return self._im
+
+    INFL_K = 30.0
+
+    def _inflation(self, i):
+        """La Inflación (shaders/inflation.frag)."""
+        g, sc = self.grid, self.score
+        im, sy = self._infl_motion(), sc.system
+        z = float(im["z"][i])
+        tens = float(im["tens"][i])
+        ly = np.zeros((4, 4), np.float32)
+        for k in range(len(im["xs"])):
+            ly[k] = (im["xs"][k], im["acts"][k, i], 0.0, 0.0)
+        p = self.p_infl
+        self._noise3d().use(0)
+        _set(p, out_size=(self.S * g.tw, self.S * g.th), aspect=float(g.tw / g.th), focal=1.4,
+             fw=tuple(im["fw"][i]), rt=tuple(im["rt"][i]), up=tuple(im["up"][i]), cam=tuple(im["cam"][i]), noise=0,
+             zf=float(z - np.floor(z)), zi=int(np.floor(z)), zt=z, base_f=0.2, hz_off=1.0 - 0.6 * 4,
+             dens_k=self.INFL_K * (1 - 0.5 * tens) * (0.7 + 0.3 * sy.matter) * (1 + 1.5 * float(sc.frames[i].st.get("glow", 0.0))),
+             thr=0.036 * (1 - 0.45 * tens), pxs=2.0 / g.th,
+             sigma=0.3, depth=2.6, expo=1.6,
+             fine_k=0.18 + 0.7 * float(im["hat"][i]), coarse_k=1.0, kick=float(max(im["kick"][i], 0)),
+             tint=float(1 - np.clip((sy.light - 0.7) / 0.7, 0, 1) * 0.6),
+             light=float(max(sy.light, 0.75)), reheat=float(im["reheat"][i]), fade_k=float(im["fade_k"][i]),
+             accent=tuple(np.asarray(self.accent, np.float32) / 255), n_ly=len(im["xs"]))
+        p["ly"].write(ly.tobytes())
+        self.f_scene.use()
+        self.vao["infl"].render()
 
     def _finish(self, f, i, A, P, hole):
         sc, g = self.score, self.grid

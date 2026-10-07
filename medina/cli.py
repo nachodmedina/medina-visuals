@@ -9,7 +9,7 @@ import time
 from .analysis import ANALYSIS_SR, analyze, key_name
 from .audio import detect_bpm, load_audio, mute_report, seed_from_audio
 from .output import encoder, render_parallel, render_stills, render_video
-from .presets import LOOKS, PALETTES, PRESETS, scene_for
+from .presets import GPU_STYLES, LOOKS, PALETTES, PRESETS, scene_for
 from .render import Renderer
 from .score import build_score
 
@@ -77,7 +77,7 @@ def resolve_engine(a):
         a.preset = scene_for(a.audio) or ("agujero" if a.motor == "gpu" else "viaje")
         if scene_for(a.audio):
             print(f"  escena del EP (por el título): {a.preset}", flush=True)
-    if PRESETS[a.preset]["style"] in ("hole", "singularity") and a.motor != "gpu":
+    if PRESETS[a.preset]["style"] in GPU_STYLES and a.motor != "gpu":
         sys.exit(f"La escena '{a.preset}' necesita el motor de GPU (--motor gpu).")
 
 
@@ -168,7 +168,7 @@ def main(argv=None):
             R = GPURenderer(score, W, H, a.title, a.font, a.ss, a.look)
             jobs = 1                              # la GPU ya trabaja en paralelo
         except Exception as e:  # noqa: BLE001  (sin moderngl o sin contexto de OpenGL)
-            if PRESETS[score.preset]["style"] in ("hole", "singularity"):
+            if PRESETS[score.preset]["style"] in GPU_STYLES:
                 sys.exit(f"La escena '{score.preset}' necesita la GPU ({e}).")
             print(f"  sin GPU ({e}): uso el motor de la CPU", flush=True)
     if stills is None and not a.score and jobs > 1 and (i1 - i0) >= jobs * 10 * fps:
