@@ -21,6 +21,8 @@ Motor de visuales audio-reactivas para los tracks de techno de **MED1NA** (oscur
 
 - `--motor gpu` por defecto (moderngl/OpenGL; sin GPU usa la CPU). ~21× más rápido que la CPU.
 - **El video por defecto es el agujero negro en 3D** (`--preset agujero`, `medina/shaders/hole.frag`): solo el agujero con la luz de su borde (un eclipse que ondula con el beat), el cielo curvado (estrellas y banda galáctica que se cierran en anillos), cámara que orbita con inercia, la tensión que tira hacia adentro y el gesto de la liberación (el tiempo se detiene un beat con un eco de luz, vuelve, aberración a la velocidad de la luz, onda gravitacional). El viaje anterior (polvo y disco) sigue como `--preset viaje`.
+- Escenas del EP: el título del archivo elige la escena (`presets.SCENES` / `scene_for`): "SINGULARIDAD" → `singularidad`, "Radio de Schwarzschild" → `agujero`.
+- En Windows, un render largo lanzado sin consola (WMI `Win32_Process.Create` directo) corta ffmpeg en silencio. Funciona: un `.cmd` que pone ffmpeg en el PATH y redirige la salida a un log, lanzado por WMI con `cmd.exe /c start "Render" /min cmd.exe /c script.cmd` (queda desacoplado y con consola propia).
 - Mejoras pendientes propuestas: capas del track como eventos lejanos alrededor del agujero, emociones momento a momento, inicio (emerger del negro) y final (cruzar el horizonte), entrega para YouTube (menos grano, 4K).
 
 ## El EP: KHAOS Y KOSMOS
@@ -38,7 +40,7 @@ Acordado con el usuario:
 - Se trabaja de a una escena, con previews, a medida que el usuario termina cada track. Él va a pasar primero los tres de KHAOS.
 
 Primeras ideas por escena (propuestas, todavía sin aprobar; ajustarlas con el usuario):
-- **Singularidad**: negro total y un único punto que late con el kick; en la primera liberación nace todo.
+- **Singularidad** — HECHA y aprobada (`--preset singularidad`, `medina/shaders/singularity.frag`; render final en 1440p). El track es de atmósfera: sin kick ni liberaciones (está a 120 BPM; el detector da ~142 porque se engancha con el rumor grave, pero esta escena no depende del tempo). Negro y un único punto que respira con el grave, dentro de un medio 3D (volumen trazado por rayos, iluminado por el punto y curvado por su gravedad) que gira y cae hacia él, con cámara con masa. Cada capa del track (NMF) enciende su región del medio; los ataques agudos hacen nacer pares que se aniquilan; los estallidos del rango medio (`analysis.bursts`) son relámpagos dentro de la nube (sin rayo dibujado: la nube se enciende por dentro). El medio crece con el track y en el final colapsa al punto (vínculo con Schwarzschild, por Penrose-Hawking). La v1 (espuma 2D) fue "muy plana": el usuario quiere movimiento con los sonidos que aparecen, fluidez y realismo. Idea para más adelante: la versión "fiel" del universo temprano (plasma caliente y opaco que llena la pantalla, ondas de sonido reales, se despeja a negro) va mejor en Nucleosíntesis / Radiación de Fondo.
 - **Radio de Schwarzschild**: el agujero negro actual (`--preset agujero`).
 - **Inflación**: el espacio se estira exponencialmente; las fluctuaciones cuánticas crecen hasta volverse la estructura del universo.
 - **Nucleosíntesis**: plasma caliente; partículas que chocan y se funden, y todo se va enfriando.

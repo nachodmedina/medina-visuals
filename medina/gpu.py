@@ -12,6 +12,7 @@ import os
 
 import numpy as np
 
+from .analysis import bursts
 from .logo import Logo
 from .noise import hash32
 from .post import Post
@@ -83,10 +84,11 @@ class GPURenderer:
         vert = _src("quad.vert")
         prog = lambda frag: ctx.program(vertex_shader=vert, fragment_shader=_src(frag))
         self.p_scene, self.p_down = prog("scene.frag"), prog("lanczos.frag")
-        self.p_hole = prog("hole.frag")
+        self.p_hole, self.p_sing = prog("hole.frag"), prog("singularity.frag")
         tri = ctx.buffer(np.array([-1, -1, 3, -1, -1, 3], np.float32).tobytes())
         self.vao = {k: ctx.vertex_array(p, [(tri, "2f", "p")]) for k, p in
-                    (("scene", self.p_scene), ("down", self.p_down), ("hole", self.p_hole))}
+                    (("scene", self.p_scene), ("down", self.p_down), ("hole", self.p_hole),
+                     ("sing", self.p_sing))}
         # escena a S x la salida; Lanczos horizontal (intermedio en 8 bits) y vertical
         self.t_scene = ctx.texture((self.S * g.tw, self.S * g.th), 4)
         self.f_scene = ctx.framebuffer([self.t_scene])
@@ -142,7 +144,7 @@ class GPURenderer:
             t.filter = (moderngl.NEAREST, moderngl.NEAREST)
             self.t_grain.append(t)
 
-    def _post(self, i, hole, bloom_k=1.0):
+    def _post(self, i, hole, bloom_k=1.0, ghost=True):
         ctx, P, cpu = self.ctx, self.post, self.post.p
         L, W, H = cpu.L, self.grid.W, self.grid.H
         accent = tuple(np.asarray(self.accent, np.float32) / 255)
@@ -151,8 +153,9 @@ class GPURenderer:
         # estela + fantasma
         self.t_frame.use(0)
         self.t_acc[prev].use(1)
+        gpx = int(round(float(cpu.ghost[i]) * L["ghost_px"] * cpu.s)) if ghost else 0
         _set(self.p_trail, frame=0, acc_prev=1, fresh=int(P.fresh), decay=float(cpu.decay[i]),
-             trail_g=float(L["trail_g"]), ghost_px=int(round(float(cpu.ghost[i]) * L["ghost_px"] * cpu.s)),
+             trail_g=float(L["trail_g"]), ghost_px=gpx,
              accent=accent, size=(W, H), has_hole=int(hole is not None), hole=hole_u)
         self.f_trail[nxt].use()
         self.vao["trail"].render()
@@ -231,6 +234,9 @@ class GPURenderer:
         fr = FrameCtx(P, st, c, fs.kc, i, roll, box, sc.seed, sc.fps, sc.system)
         sy = sc.system
         silent = bool(c["silent"])
+        if P["style"] == "singularity":                 # antes de que exista nada: ni estrellas ni fenómenos
+            self._singularity(i)
+            return self._finish(f, i, A, P, None)
         has_phen = 0
         if not silent:                                  # lo disperso: en la CPU
             self.lay_stars.fill(0)
@@ -429,6 +435,187 @@ class GPURenderer:
         self.f_scene.use()
         self.vao["hole"].render()
 
+    def _sing_motion(self):
+        """El movimiento de la Singularidad (una vez por partitura, así cada cuadro se dibuja solo).
+        El track no tiene kick: todo sale de su atmósfera, y todo se mueve con inercia.
+        - la respiración: las olas del grave (el punto crece y se enciende con ellas);
+        - la presencia: el nivel del track, lento (el punto emerge y se apaga con el track);
+        - la apertura: el caos (los agudos se abren) despierta el medio;
+        - las capas: cada sonido que aparece enciende y agita su región del medio;
+        - la cámara: deriva alrededor del punto, más cuanto más suena; se acerca a medida que se abre;
+        - los pares: cada ataque agudo hace nacer un par que se separa, cae apenas y se aniquila;
+        - los relámpagos: cada estallido del rango medio enciende la nube desde adentro (2 a 4
+          descargas en medio segundo, más un resplandor que se apaga);
+        - el crecimiento: el medio se extiende y se densifica a medida que el track avanza (más rápido
+          cuanto más suena); en el final, cuando el track se apaga, todo se contrae y cae al punto."""
+        if getattr(self, "_sm", None) is not None:
+            return self._sm
+        sc = self.score
+        A, fps = sc.analysis, sc.fps
+        n, sp = len(sc.frames), self._spring
+        t = np.arange(n) / fps
+
+        def norm(x, lo=5, hi=97):
+            a, b = np.percentile(x, lo), np.percentile(x, hi)
+            return np.clip((x - a) / (b - a + 1e-9), 0, 1)
+
+        breath = np.clip(sp(norm(A["low"].astype(np.float64)), fps, 0.9, 0.8), 0, 1.3)
+        lvl = A["level_db"].astype(np.float64)
+        pres = np.clip(sp(np.clip(1 - (np.percentile(lvl, 95) - lvl) / 24, 0, 1), fps, 0.15, 1.0), 0, 1)
+        opn = np.clip(sp(A["chaos"].astype(np.float64), fps, 0.08, 1.0), 0, 1)
+        # las capas: actividad con ataque rápido y caída lenta (como un fluido que se calma)
+        Ly = A.get("layers") or dict(act=np.zeros((n, 0)), on=np.zeros((n, 0), bool), center=np.zeros(0))
+        G = min(8, Ly["act"].shape[1])
+        g = np.random.default_rng([sc.seed, 7171])
+        acts, lays = [], []
+        for k in range(G):
+            gate = np.clip(sp(Ly["on"][:, k].astype(np.float64), fps, 0.25, 1.0), 0, 1)
+            a = np.clip(sp(np.clip(Ly["act"][:, k], 0, 1.5) * gate, fps, 2.0, 0.9, 0.3, 1.0), 0, 1.4)
+            acts.append(a)
+            d = g.normal(size=3)
+            oc = float(np.clip(np.log2(max(Ly["center"][k], 300) / 300) / 4.5, 0, 1))   # 0 grave .. 1 agudo
+            lays.append(dict(d=d / np.linalg.norm(d), r=1.1 - 0.75 * oc, w=0.16 - 0.07 * oc, white=0.1 + 0.6 * oc))
+        acts = np.array(acts).reshape(G, n)
+        e_tot = np.clip(sp(np.clip(acts.sum(0) / 1.5, 0, 1.5), fps, 0.3, 1.0), 0, 1.5)
+        speed = 0.3 + 0.9 * e_tot + 0.4 * opn
+        swirl = np.cumsum(0.035 * speed) / fps
+        grow = np.cumsum(pres * (0.4 + e_tot + 0.6 * opn))
+        grow = grow / max(grow[-1], 1e-9)
+        tail = np.clip((t - 0.8 * t[-1]) / (0.05 * t[-1] + 1e-9), 0, 1)
+        fall = np.clip(sp((1 - pres) * tail, fps, 0.2, 1.0), 0, 1)       # el final: todo cae al punto
+        env_r = (0.35 + 0.8 * grow ** 0.8) * (1 - 0.75 * fall)
+        dens_k = 0.45 + 0.55 * grow ** 0.7
+        flow = np.cumsum(0.05 + 0.07 * opn + 0.09 * e_tot + 1.2 * fall) / fps
+        turb = np.cumsum(0.15 + 0.65 * e_tot + 0.3 * opn) / fps
+        warp_k = 0.5 + 0.5 * e_tot
+        # la cámara con masa
+        ph = g.uniform(0, 2 * np.pi, 8)
+        az = np.cumsum(2 * np.pi / 150 * speed) / fps + ph[0]
+        el = 0.38 * np.sin(2 * np.pi * t / 83 + ph[1]) + 0.12 * np.sin(2 * np.pi * t / 37 + ph[2])
+        D = sp(2.7 - 0.6 * opn - 0.15 * e_tot, fps, 0.05, 1.0) - 0.04 * breath
+        C = np.stack([np.sin(az) * np.cos(el), np.sin(el), -np.cos(az) * np.cos(el)], 1) * D[:, None]
+        tgt = 0.07 * np.stack([np.sin(2 * np.pi * t / 29 + ph[3]), np.sin(2 * np.pi * t / 41 + ph[4]),
+                               np.sin(2 * np.pi * t / 53 + ph[5])], 1)
+        fw = tgt - C
+        fw /= np.linalg.norm(fw, axis=1, keepdims=True)
+        rt = np.cross(np.array([0.0, 1.0, 0.0]), fw)
+        rt /= np.linalg.norm(rt, axis=1, keepdims=True)
+        up = np.cross(fw, rt)
+        roll = np.deg2rad(4) * np.sin(2 * np.pi * t / 47 + ph[6])
+        cr, sr = np.cos(roll)[:, None], np.sin(roll)[:, None]
+        rt, up = rt * cr + up * sr, up * cr - rt * sr
+        ax = g.normal(size=3)
+        ax[1] = abs(ax[1]) + 1.5                                # el giro, más o menos horizontal
+        ev = []
+        born = np.flatnonzero(np.diff(A["hat_n"], prepend=A["hat_n"][:1]) > 0)
+        for b in born:
+            rg = np.random.default_rng([sc.seed, 6061, int(b)])
+            u = rg.uniform(size=5)
+            d = rg.normal(size=3)
+            ev.append((int(b), int((0.35 + 0.45 * u[0]) * fps), (0.08 + 0.55 * u[1] ** 1.5) * d / np.linalg.norm(d),
+                       2 * np.pi * u[2], 0.35 + 0.65 * u[3] ** 2, 0.012 + 0.02 * u[4]))
+        fl = []
+        for b, k in bursts(A, fps):
+            rg = np.random.default_rng([sc.seed, 9090, b])
+            d1, d2 = rg.normal(size=3), rg.normal(size=3)
+            a = d1 / np.linalg.norm(d1) * env_r[b] * rg.uniform(0.35, 0.9)
+            c = a + d2 / np.linalg.norm(d2) * rg.uniform(0.25, 0.6)
+            m = int(rg.integers(2, 5))
+            st = np.concatenate([[0.0], np.cumsum(rg.uniform(0.06, 0.18, m - 1))])
+            amp = np.concatenate([[1.0], rg.uniform(0.4, 1.0, m - 1)])
+            tt = np.arange(int(1.4 * fps)) / fps
+            env = sum(a_ * np.exp(-(tt - s_) / 0.06) * (tt >= s_) for a_, s_ in zip(amp, st))
+            env = env + 0.15 * np.exp(-tt / 0.35)
+            fl.append((b, a, c, k * env))
+        self._sm = dict(breath=breath, pres=pres, open=opn, acts=acts, lays=lays, swirl=swirl, flow=flow,
+                        turb=turb, warp_k=warp_k, C=C, fw=fw, rt=rt, up=up, ax=ax / np.linalg.norm(ax),
+                        events=ev, env_r=env_r, dens_k=dens_k, flashes=fl)
+        return self._sm
+
+    def _noise3d(self):
+        """Ruido 3D periódico de 4 canales (de la semilla del track): la materia del medio."""
+        if getattr(self, "t_noise", None) is None:
+            import moderngl
+            from scipy.ndimage import gaussian_filter
+            N = 128
+            g = np.random.default_rng([self.score.seed, 3131])
+            vol = np.empty((N, N, N, 4), np.uint8)
+            for c in range(4):
+                x = gaussian_filter(g.standard_normal((N, N, N)).astype(np.float32), 2.2, mode="wrap")
+                rk = np.empty(x.size, np.float32)                   # ecualizado: valores parejos 0..1
+                rk[np.argsort(x, axis=None)] = np.linspace(0, 255, x.size)
+                vol[..., c] = rk.reshape(x.shape).astype(np.uint8)
+            self.t_noise = self.ctx.texture3d((N, N, N), 4, vol.tobytes())
+            self.t_noise.filter = (moderngl.LINEAR, moderngl.LINEAR)
+            self.t_noise.repeat_x = self.t_noise.repeat_y = self.t_noise.repeat_z = True
+        return self.t_noise
+
+    def _singularity(self, i):
+        """La Singularidad (shaders/singularity.frag)."""
+        g, sc = self.grid, self.score
+        sm = self._sing_motion()
+        br, pr = float(sm["breath"][i]), float(sm["pres"][i])
+        C, fw, rt, up = sm["C"][i], sm["fw"][i], sm["rt"][i], sm["up"][i]
+        fps, focal = sc.fps, 1.6
+        sw = float(sm["swirl"][i])
+        # las capas: su región gira con el medio (al ritmo del giro a su radio)
+        ld, lp = np.zeros((8, 4), np.float32), np.zeros((8, 4), np.float32)
+        kx = sm["ax"]
+        for k, L in enumerate(sm["lays"]):
+            a = -sw * (1.0 + 0.9 * np.exp(-L["r"] / 0.7))
+            d = L["d"]
+            d = d * np.cos(a) + np.cross(kx, d) * np.sin(a) + kx * np.dot(kx, d) * (1 - np.cos(a))
+            ld[k] = (*d, float(sm["acts"][k, i]) * pr)
+            lp[k] = (L["r"], L["w"], L["white"], 0.0)
+        # los pares, proyectados con la cámara de este cuadro
+        ea, eb = np.zeros((48, 4), np.float32), np.zeros((48, 2), np.float32)
+        k = 0
+        for f0, life, pos, axr, bri, sep in reversed(sm["events"]):   # los más nuevos primero
+            if f0 > i:
+                continue
+            q = (i - f0) / life
+            if q >= 1:
+                if i - f0 > 2 * fps:
+                    break
+                continue
+            o = pos * np.exp(-0.6 * (i - f0) / fps) - C              # caen apenas hacia el punto
+            z = float(np.dot(o, fw))
+            if z <= 0.05:
+                continue
+            ea[k] = (np.dot(o, rt) * focal / z, -np.dot(o, up) * focal / z, axr, bri * pr)
+            eb[k] = (q, sep * focal / z)
+            k += 1
+            if k == 48:
+                break
+        # los relámpagos activos (los dos más intensos)
+        fa, fb = np.zeros((2, 4), np.float32), np.zeros((2, 4), np.float32)
+        on = sorted(((env[i - b], a, c) for b, a, c, env in sm["flashes"] if 0 <= i - b < len(env)),
+                    key=lambda x: -x[0])[:2]
+        for j, (I, a, c) in enumerate(on):
+            fa[j] = (*a, I * pr)
+            fb[j] = (*c, 0.0)
+        sy = sc.system
+        p = self.p_sing
+        self._noise3d().use(0)
+        _set(p, out_size=(self.S * g.tw, self.S * g.th), px=(2.0 / g.th, 2.0 / g.th), aspect=float(g.tw / g.th),
+             focal=focal, cam=tuple(C), fw=tuple(fw), rt=tuple(rt), up=tuple(up), noise=0,
+             swirl_ax=tuple(kx), swirl=sw, flow=float(sm["flow"][i]), turb=float(sm["turb"][i]),
+             warp_k=float(sm["warp_k"][i]), lens_k=0.012,
+             L0=pr * (0.8 + 0.5 * br), med_k=0.4 * (0.35 + 0.65 * float(sm["open"][i])), sigma=1.2, ly_k=25.0,
+             core_k=pr * (0.9 + 0.6 * br), halo_k=pr * (0.16 + 0.22 * br), core_px=1.5, halo_px=float(7 + 6 * br),
+             tint=float(1 - np.clip((sy.light - 0.7) / 0.7, 0, 1) * 0.5),
+             accent=tuple(np.asarray(self.accent, np.float32) / 255),
+             env_r=float(sm["env_r"][i]), dens_k=float(sm["dens_k"][i]), n_fl=len(on), fl_col=(0.66, 0.6, 0.8),
+             n_ly=len(sm["lays"]), n_ev=k)
+        p["fl_a"].write(fa.tobytes())
+        p["fl_b"].write(fb.tobytes())
+        p["ly_d"].write(ld.tobytes())
+        p["ly_p"].write(lp.tobytes())
+        p["ev_a"].write(ea.tobytes())
+        p["ev_b"].write(eb.tobytes())
+        self.f_scene.use()
+        self.vao["sing"].render()
+
     def _finish(self, f, i, A, P, hole):
         sc, g = self.score, self.grid
         # supersampling -> el cuadro con Lanczos (con el margen de la grilla en negro)
@@ -443,9 +630,10 @@ class GPURenderer:
         _set(self.p_down, img=0, dir=(0, 1), scale=float(self.S), offset=(g.x_off, g.ty0))
         self.vao["down"].render()
         self.f_frame.viewport = (0, 0, g.W, g.H)
-        fbo = self._post(i, hole, P.get("bloom", 1.0)) if self.post is not None else self.f_frame
+        fbo = (self._post(i, hole, P.get("bloom", 1.0), P.get("ghost", True)) if self.post is not None
+               else self.f_frame)
         f[:] = np.frombuffer(fbo.read(components=3, alignment=1), np.uint8).reshape(g.H, g.W, 3)
         glitch(f, A, i, sc.seed, g.s, P)
         if P.get("title", True):
-            self.logo.draw(f, float(A["kick"][i]))
+            self.logo.draw(f, float(A["kick"][i]) if P.get("pulse", True) else 0.0)
         return f

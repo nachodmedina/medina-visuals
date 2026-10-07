@@ -9,7 +9,7 @@ import time
 from .analysis import ANALYSIS_SR, analyze, key_name
 from .audio import detect_bpm, load_audio, mute_report, seed_from_audio
 from .output import encoder, render_parallel, render_stills, render_video
-from .presets import LOOKS, PALETTES, PRESETS
+from .presets import LOOKS, PALETTES, PRESETS, scene_for
 from .render import Renderer
 from .score import build_score
 
@@ -74,9 +74,11 @@ def resolve_engine(a):
         print("  sin GPU (moderngl / OpenGL): uso el motor de la CPU", flush=True)
         a.motor = "cpu"
     if a.preset is None:
-        a.preset = "agujero" if a.motor == "gpu" else "viaje"
-    if PRESETS[a.preset]["style"] == "hole" and a.motor != "gpu":
-        sys.exit("El agujero negro en 3D necesita el motor de GPU (--motor gpu).")
+        a.preset = scene_for(a.audio) or ("agujero" if a.motor == "gpu" else "viaje")
+        if scene_for(a.audio):
+            print(f"  escena del EP (por el título): {a.preset}", flush=True)
+    if PRESETS[a.preset]["style"] in ("hole", "singularity") and a.motor != "gpu":
+        sys.exit(f"La escena '{a.preset}' necesita el motor de GPU (--motor gpu).")
 
 
 def listen(a, fps):
@@ -166,8 +168,8 @@ def main(argv=None):
             R = GPURenderer(score, W, H, a.title, a.font, a.ss, a.look)
             jobs = 1                              # la GPU ya trabaja en paralelo
         except Exception as e:  # noqa: BLE001  (sin moderngl o sin contexto de OpenGL)
-            if PRESETS[score.preset]["style"] == "hole":
-                sys.exit(f"El agujero negro en 3D necesita la GPU ({e}).")
+            if PRESETS[score.preset]["style"] in ("hole", "singularity"):
+                sys.exit(f"La escena '{score.preset}' necesita la GPU ({e}).")
             print(f"  sin GPU ({e}): uso el motor de la CPU", flush=True)
     if stills is None and not a.score and jobs > 1 and (i1 - i0) >= jobs * 10 * fps:
         worker = ["--res", a.res, "--start", str(a.start), "--title", a.title, "--encoder-preset", a.x264,

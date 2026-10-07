@@ -26,6 +26,10 @@ PRESETS = {
     # el agujero negro en 3D (motor de GPU): rayos de luz curvados por la gravedad. Es el video
     # por defecto cuando hay GPU; sin GPU, el viaje.
     "agujero":       dict(style="hole", glitch=False, bloom=1.25),
+    # Singularidad (EP, motor de GPU): el estado previo a que todo se forme. Negro total y un único
+    # punto que respira con el grave; a su alrededor el vacío hierve (fluctuaciones cuánticas) y cae
+    # hacia él. Sin kick ni liberaciones: ni fantasma ni latido de la firma.
+    "singularidad":  dict(style="singularity", glitch=False, ghost=False, pulse=False),
     # viaje: el track decide el estilo. Antes del primer silencio, mundo de partículas (polvo que
     # viene hacia la cámara); después, el disco en diagonal, cada vez más de canto. Solo cambia en
     # las liberaciones. Nada de anillos ni círculos: lo que se ve tiene que parecer parte del espacio.
@@ -33,6 +37,23 @@ PRESETS = {
                           worlds=[["brillos", "puntos"],
                                   ["disco_abierto", "disco"]]),
 }
+
+# El EP (KHAOS Y KOSMOS): la escena de cada track sale de su título (la única decisión manual).
+SCENES = {
+    "singularidad": "singularidad",
+    "radio de schwarzschild": "agujero",
+}
+
+
+def scene_for(path):
+    """La escena del EP que corresponde al título del archivo (sin tildes, mayúsculas ni guiones), o None."""
+    import os
+    import unicodedata
+    name = os.path.splitext(os.path.basename(path or ""))[0]
+    name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
+    name = " ".join(name.replace("_", " ").replace("-", " ").split())
+    return SCENES.get(name)
+
 
 # Post-proceso reactivo. Cada efecto lee una señal del track:
 #   bloom     <- liberaciones: se enciende en el rise y se apaga en unos segundos

@@ -398,3 +398,23 @@ def detect_layers(lspec, cf, fps, silent, K=8):
         gfirst[j] = first[g].min()
         gcen[j] = float(np.exp(np.mean(np.log(center[g]))))
     return dict(act=gact, on=gon, first=gfirst, center=gcen, order=list(range(G)))
+
+
+def bursts(A, fps, thr=8.0, gap=1.5):
+    """Estallidos del rango medio (700 Hz - 3 kHz) por encima de lo que suena estable: barridos que
+    caen, ráfagas. A cada banda se le resta su mediana de los últimos ~12 s (los tonos sostenidos no
+    cuentan). Devuelve [(cuadro, fuerza 0..1)], separados al menos `gap` segundos."""
+    le = np.geomspace(300, 11000, 73)
+    cf = np.sqrt(le[:-1] * le[1:])
+    X = A["bands"][:, (cf > 700) & (cf < 3000)]
+    med = np.repeat(median_filter(X[::5], size=(max(1, int(12 * fps / 5)), 1), mode="nearest"), 5, axis=0)[:len(X)]
+    E = uniform_filter1d(np.maximum(X - med, 0).mean(1), 4)
+    m = np.median(E)
+    z = (E - m) / (np.median(np.abs(E - m)) + 1e-9)
+    peaks = []
+    for i in np.argsort(-z):
+        if z[i] < thr:
+            break
+        if all(abs(i - p) > gap * fps for p, _ in peaks):
+            peaks.append((int(i), float(np.clip((z[i] - thr) / 10 + 0.3, 0.3, 1.0))))
+    return sorted(peaks)
