@@ -322,6 +322,7 @@ def analyze(y, fps, bpm_range=(100, 165)):
         flatness=flatness,
         chroma=chroma,
         bands=np.log1p(lspec / (np.percentile(lspec, 97, axis=0) + 1e-12) * 30).astype(np.float32),
+        toms=low_hits(y, fps),                     # golpes en 80-400 Hz
     )
 
 
@@ -424,7 +425,8 @@ def layer_attacks(Ly, fps, silent=None, thr=0.35, gap=0.2):
 def bursts(A, fps, thr=8.0, gap=1.5):
     """Estallidos del rango medio (700 Hz - 3 kHz) por encima de lo que suena estable: barridos que
     caen, ráfagas. A cada banda se le resta su mediana de los últimos ~12 s (los tonos sostenidos no
-    cuentan). Devuelve [(cuadro, fuerza 0..1)], separados al menos `gap` segundos."""
+    cuentan) y lo que suena justo en un tom. Devuelve [(cuadro, fuerza 0..1)], separados al menos
+    `gap` segundos."""
     le = np.geomspace(300, 11000, 73)
     cf = np.sqrt(le[:-1] * le[1:])
     X = A["bands"][:, (cf > 700) & (cf < 3000)]
@@ -432,6 +434,8 @@ def bursts(A, fps, thr=8.0, gap=1.5):
     E = uniform_filter1d(np.maximum(X - med, 0).mean(1), 4)
     m = np.median(E)
     z = (E - m) / (np.median(np.abs(E - m)) + 1e-9)
+    for f, _ in A.get("toms", []):                 # un tom no es un estallido (tiene su propio gesto)
+        z[max(0, f - int(0.1 * fps)):f + int(0.6 * fps)] = -np.inf
     peaks = []
     for i in np.argsort(-z):
         if z[i] < thr:
@@ -439,3 +443,30 @@ def bursts(A, fps, thr=8.0, gap=1.5):
         if all(abs(i - p) > gap * fps for p, _ in peaks):
             peaks.append((int(i), float(np.clip((z[i] - thr) / 10 + 0.3, 0.3, 1.0))))
     return sorted(peaks)
+
+
+def low_hits(y, fps, thr=6.0, gap=0.12):
+    """Golpes en 80-400 Hz (toms): subidas bruscas de energía (> `thr` dB en ~40 ms), medidas a
+    10 ms. El rumor grave nunca sube tan rápido. Devuelve [(cuadro, fuerza 0..1)]."""
+    sr, hop = ANALYSIS_SR, 220
+    n = (len(y) - N_FFT) // hop
+    if n <= 0:
+        return []
+    f = np.fft.rfftfreq(N_FFT, 1 / sr)
+    band_ = (f >= 80) & (f < 400)
+    w = np.hanning(N_FFT).astype(np.float32)
+    offs = np.arange(N_FFT)
+    E = np.zeros(n)
+    for s in range(0, n, 4000):
+        idx = np.arange(s, min(n, s + 4000))[:, None] * hop + offs
+        E[s:s + 4000] = (np.abs(np.fft.rfft(y[idx] * w, axis=1)) ** 2)[:, band_].sum(1)
+    L = 10 * np.log10(E + 1e-12)
+    prev = np.maximum.reduce([np.concatenate([np.full(k, L[0]), L[:-k]]) for k in (3, 4, 5)])
+    rise = L - prev
+    hits, last = [], -1e9
+    for k in np.flatnonzero(rise > thr):
+        if k - last > gap * sr / hop:
+            pk = float(rise[k:k + 6].max())
+            hits.append((int(round(k * hop / sr * fps)), float(np.clip(0.4 + (pk - thr) / 8, 0.4, 1.0))))
+        last = k
+    return hits

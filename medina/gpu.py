@@ -456,7 +456,10 @@ class GPURenderer:
         - los relámpagos: cada estallido del rango medio enciende la nube desde adentro (2 a 4
           descargas en medio segundo, más un resplandor que se apaga);
         - el crecimiento: el medio se extiende y se densifica a medida que el track avanza (más rápido
-          cuanto más suena); en el final, cuando el track se apaga, todo se contrae y cae al punto."""
+          cuanto más suena); en el final, cuando el track se apaga, todo se contrae y cae al punto;
+        - los truenos: cada tom es una onda de presión que sale del punto, en un medio denso: avanza
+          y se frena, y lo que empuja queda desplazado y se asienta despacio; el punto late (sin
+          rebote) y la cámara recibe el empujón como una masa grande."""
         if getattr(self, "_sm", None) is not None:
             return self._sm
         sc = self.score
@@ -479,13 +482,13 @@ class GPURenderer:
         acts, lays = [], []
         for k in range(G):
             gate = np.clip(sp(Ly["on"][:, k].astype(np.float64), fps, 0.25, 1.0), 0, 1)
-            a = np.clip(sp(np.clip(Ly["act"][:, k], 0, 1.5) * gate, fps, 2.0, 0.9, 0.3, 1.0), 0, 1.4)
+            a = np.clip(sp(np.clip(Ly["act"][:, k], 0, 1.5) * gate, fps, 0.9, 1.0, 0.2, 1.0), 0, 1.4)
             acts.append(a)
             d = g.normal(size=3)
             oc = float(np.clip(np.log2(max(Ly["center"][k], 300) / 300) / 4.5, 0, 1))   # 0 grave .. 1 agudo
             lays.append(dict(d=d / np.linalg.norm(d), r=1.1 - 0.75 * oc, w=0.16 - 0.07 * oc, white=0.1 + 0.6 * oc))
         acts = np.array(acts).reshape(G, n)
-        e_tot = np.clip(sp(np.clip(acts.sum(0) / 1.5, 0, 1.5), fps, 0.3, 1.0), 0, 1.5)
+        e_tot = np.clip(sp(np.clip(acts.sum(0) / 1.5, 0, 1.5), fps, 0.15, 1.0), 0, 1.5)
         speed = 0.3 + 0.9 * e_tot + 0.4 * opn
         swirl = np.cumsum(0.035 * speed) / fps
         grow = np.cumsum(pres * (0.4 + e_tot + 0.6 * opn))
@@ -495,13 +498,23 @@ class GPURenderer:
         env_r = (0.35 + 0.8 * grow ** 0.8) * (1 - 0.75 * fall)
         dens_k = 0.45 + 0.55 * grow ** 0.7
         flow = np.cumsum(0.05 + 0.07 * opn + 0.09 * e_tot + 1.2 * fall) / fps
-        turb = np.cumsum(0.15 + 0.65 * e_tot + 0.3 * opn) / fps
-        warp_k = 0.5 + 0.5 * e_tot
+        turb = np.cumsum(0.08 + 0.36 * e_tot + 0.16 * opn) / fps
+        warp_k = 0.7 + 0.6 * e_tot
         # la cámara con masa
         ph = g.uniform(0, 2 * np.pi, 8)
         az = np.cumsum(2 * np.pi / 150 * speed) / fps + ph[0]
         el = 0.38 * np.sin(2 * np.pi * t / 83 + ph[1]) + 0.12 * np.sin(2 * np.pi * t / 37 + ph[2])
-        D = sp(2.7 - 0.6 * opn - 0.15 * e_tot, fps, 0.05, 1.0) - 0.04 * breath
+        toms = A.get("toms", [])
+        imp = np.zeros(n)
+        for b, k in toms:
+            imp[b:b + int(0.12 * fps)] = np.maximum(imp[b:b + int(0.12 * fps)], k)
+        beat = np.clip(sp(imp, fps, 2.2, 0.9, 0.6, 1.0), 0, 1.5)        # el latido del punto: sin rebote
+        press = np.zeros(n)                                             # la presión de la onda dura un rato
+        for b, k in toms:
+            m = n - b
+            press[b:] = np.maximum(press[b:], k * np.exp(-np.arange(m) / (0.9 * fps)))
+        push = sp(press, fps, 0.35, 0.9, 0.25, 1.0)                      # la cámara, empujada como una masa
+        D = sp(2.7 - 0.6 * opn - 0.15 * e_tot, fps, 0.05, 1.0) - 0.04 * breath + 0.22 * push
         C = np.stack([np.sin(az) * np.cos(el), np.sin(el), -np.cos(az) * np.cos(el)], 1) * D[:, None]
         tgt = 0.07 * np.stack([np.sin(2 * np.pi * t / 29 + ph[3]), np.sin(2 * np.pi * t / 41 + ph[4]),
                                np.sin(2 * np.pi * t / 53 + ph[5])], 1)
@@ -537,6 +550,7 @@ class GPURenderer:
             env = env + 0.15 * np.exp(-tt / 0.35)
             fl.append((b, a, c, k * env))
         self._sm = dict(breath=breath, pres=pres, open=opn, acts=acts, lays=lays, swirl=swirl, flow=flow,
+                        toms=toms, beat=beat,
                         turb=turb, warp_k=warp_k, C=C, fw=fw, rt=rt, up=up, ax=ax / np.linalg.norm(ax),
                         events=ev, env_r=env_r, dens_k=dens_k, flashes=fl)
         return self._sm
@@ -603,6 +617,20 @@ class GPURenderer:
         for j, (I, a, c) in enumerate(on):
             fa[j] = (*a, I * pr)
             fb[j] = (*c, 0.0)
+        # los truenos activos (los más recientes): el frente se frena y se ensancha, la onda se apaga
+        wv, wk = np.zeros((4, 4), np.float32), np.zeros((4, 2), np.float32)
+        nw = 0
+        for b, kt in reversed(sm["toms"]):
+            t = (i - b) / fps
+            if t < 0:
+                continue
+            if t > 4.5 or nw == 4:
+                break
+            R = 0.03 + 0.8 * t ** 0.65
+            wv[nw] = (R, 0.9 * kt * pr * np.exp(-t / 1.3) / (1 + 0.5 * R), 0.12 + 0.10 * t, (b * 0.618) % 1.0)
+            wk[nw] = (0.10 * kt * pr * (1 - np.exp(-t / 0.25)) * np.exp(-t / 1.8), 0.25 + 0.2 * t)
+            nw += 1
+        bt = float(sm["beat"][i])
         sy = sc.system
         p = self.p_sing
         self._noise3d().use(0)
@@ -610,12 +638,16 @@ class GPURenderer:
              focal=focal, cam=tuple(C), fw=tuple(fw), rt=tuple(rt), up=tuple(up), noise=0,
              swirl_ax=tuple(kx), swirl=sw, flow=float(sm["flow"][i]), turb=float(sm["turb"][i]),
              warp_k=float(sm["warp_k"][i]), lens_k=0.012,
-             L0=pr * (0.8 + 0.5 * br), med_k=0.4 * (0.35 + 0.65 * float(sm["open"][i])), sigma=1.2, ly_k=25.0,
-             core_k=pr * (0.9 + 0.6 * br), halo_k=pr * (0.16 + 0.22 * br), core_px=1.5, halo_px=float(7 + 6 * br),
+             L0=pr * (0.8 + 0.5 * br) * (1 + 1.4 * bt), med_k=0.4 * (0.35 + 0.65 * float(sm["open"][i])),
+             sigma=2.0, ly_k=25.0,
+             core_k=pr * (0.9 + 0.6 * br) * (1 + 1.8 * bt), halo_k=pr * (0.16 + 0.22 * br) * (1 + 3.0 * bt),
+             core_px=1.5, halo_px=float(7 + 6 * br + 9 * bt), n_wv=nw,
              tint=float(1 - np.clip((sy.light - 0.7) / 0.7, 0, 1) * 0.5),
              accent=tuple(np.asarray(self.accent, np.float32) / 255),
              env_r=float(sm["env_r"][i]), dens_k=float(sm["dens_k"][i]), n_fl=len(on), fl_col=(0.66, 0.6, 0.8),
              n_ly=len(sm["lays"]), n_ev=k)
+        p["wv"].write(wv.tobytes())
+        p["wk"].write(wk.tobytes())
         p["fl_a"].write(fa.tobytes())
         p["fl_b"].write(fb.tobytes())
         p["ly_d"].write(ld.tobytes())
@@ -758,6 +790,9 @@ class GPURenderer:
         return sorted(out, key=lambda x: -x[3])[:6]
 
     INFL_K = 30.0
+    INFL_SIGMA = 0.3                             # absorción de los filamentos
+    INFL_BODY, INFL_GLOW, INFL_BODY_W = 1.0, 0.15, 5.0   # el gas: absorción, luz de los nudos, ancho
+    INFL_LIT = 0.35                              # cuánto iluminan las luces de los sonidos al gas
     INFL_THR, INFL_FINE = 0.032, (0.14, 0.55)    # ancho de los filamentos; peso de lo fino (con los hats)
 
     def _inflation(self, i):
@@ -780,8 +815,9 @@ class GPURenderer:
              fw=tuple(im["fw"][i]), rt=tuple(im["rt"][i]), up=tuple(im["up"][i]), cam=tuple(im["cam"][i]), noise=0,
              zf=float(z - np.floor(z)), zi=int(np.floor(z)), zt=z, base_f=0.2, hz_off=1.0 - 0.6 * 4,
              dens_k=self.INFL_K * (1 - 0.5 * tens) * (0.7 + 0.3 * sy.matter) * (1 + 1.5 * float(sc.frames[i].st.get("glow", 0.0))),
+             gas_r=1.0 / (1 + 1.5 * float(sc.frames[i].st.get("glow", 0.0))),
              thr=self.INFL_THR * (1 - 0.45 * tens), pxs=2.0 / g.th,
-             sigma=0.3, depth=2.6, expo=1.6,
+             sigma=self.INFL_SIGMA, body_k=self.INFL_BODY, glow_k=self.INFL_GLOW, body_w=self.INFL_BODY_W, lit_k=self.INFL_LIT, depth=2.6, expo=1.6,
              fine_k=self.INFL_FINE[0] + self.INFL_FINE[1] * float(im["hat"][i]), coarse_k=1.0, kick=float(max(im["kick"][i], 0)),
              tint=float(1 - np.clip((sy.light - 0.7) / 0.7, 0, 1) * 0.6),
              light=float(max(sy.light, 0.75)), reheat=float(im["reheat"][i]), fade_k=float(im["fade_k"][i]),

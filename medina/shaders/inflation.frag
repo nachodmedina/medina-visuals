@@ -11,6 +11,8 @@
 // - Cada sonido es además una luz dentro de la red (y cada ataque, un destello breve): no se ve la
 //   fuente, solo los filamentos que le pasan cerca, como un farol en una nebulosa (blancos cerca,
 //   violetas al alejarse).
+// - Los filamentos tienen cuerpo: una vaina de gas oscuro que absorbe la luz (lo de adelante tapa a lo
+//   de atrás) y que los nudos iluminan apenas desde adentro (como el punto de la Singularidad).
 // - El recalentamiento: al final, el campo se vuelve luz y se apaga.
 
 uniform vec2 out_size;
@@ -23,6 +25,9 @@ uniform float zt;                        // estiramiento total (reloj de las flu
 uniform float base_f, hz_off;            // frecuencia de la octava más gruesa; cruce del horizonte
 uniform float dens_k, thr, sigma, depth, expo;
 uniform float fine_k, coarse_k, kick, tint, light, reheat, fade_k;
+uniform float body_k, glow_k, body_w;    // la vaina de gas: absorción; la luz de los nudos en ella; ancho
+uniform float gas_r;                     // el gas no se enciende con el impacto de la liberación (solo la red)
+uniform float lit_k;                     // cuánto iluminan las luces al gas (menos de lo que absorbe)
 uniform vec3 accent;
 uniform float pxs;                       // un píxel de salida en unidades de pantalla (antialias)
 uniform int n_ly;
@@ -45,11 +50,12 @@ vec3 off(int J) { return vec3(hash1(J * 3 + 1), hash1(J * 3 + 2), hash1(J * 3 + 
 // filamento (una línea en 3D); el de tres, un nudo. Así cada rayo cruza pocos: negro con hilos de luz.
 float shell(float n, float w) { return max(0.0, 1.0 - abs(n - 0.5) / w); }
 
-// densidad (x), blancura (y) y entorno de los filamentos (z: solo se ve si algo lo ilumina) del campo
-// en un punto (en coordenadas de la cámara)
-vec3 field(vec3 pc, float t) {
+// densidad (x), blancura (y), entorno de los filamentos que iluminan las luces (z), la luz de los nudos
+// en el gas (w) y el gas que absorbe (gas_out), en un punto (en coordenadas de la cámara)
+float gas_out;
+vec4 field(vec3 pc, float t) {
     vec3 pw = cam + rt * pc.x + up * pc.y + fw * pc.z;
-    float s = 0.0, white = 0.0, halo = 0.0;
+    float s = 0.0, white = 0.0, halo = 0.0, glow = 0.0, gas = 0.0;
     for (int j = 0; j < NO; j++) {
         float lvl = float(j) - zf;                       // -1..NO-1 (más alto = más fino)
         float x = (lvl + 1.0) / float(NO);               // 0 grueso .. 1 fino
@@ -73,8 +79,15 @@ vec3 field(vec3 pc, float t) {
         white += a * x;
         float hw = shell(n.w, 2.6 * wd) * shell(n.x, 2.6 * wd);
         halo += sc * hw * hw;
+        // el gas: un tubo difuso alrededor de cada filamento (absorbe) y un resplandor alrededor de los nudos
+        float gw = body_w * wd;
+        float gt = shell(n.w, gw) * shell(n.x, gw);
+        gas += sc * gt * gt;
+        float gn = gt * shell(n.y, gw);
+        glow += sc * boost * gn * gn;
     }
-    return vec3(s, white / (s + 1e-4), halo);
+    gas_out = body_k * gas_r * gas;
+    return vec4(s, white / (s + 1e-4), halo + lit_k * gas_r * gas, gas_r * glow);
 }
 
 void main() {
@@ -87,9 +100,10 @@ void main() {
     for (int k = 0; k < 96; k++) {
         if (t > depth) break;
         float dt = 0.018 + 0.03 * t;
-        vec3 fd = field(dir * t, t);
+        vec4 fd = field(dir * t, t);
         float dn = fd.x * dens_k;
-        float dl = fd.z * dens_k * float(n_lt > 0);
+        float dl = fd.z * dens_k * float(n_lt > 0);   // el entorno de los filamentos (con el gas)
+        float hal = gas_out * dens_k;
         if (dn > 0.0001) {
             vec3 c = mix(violet, vec3(1.0), clamp(fd.y * 1.3, 0.0, 1.0));
             // lo que pasa pegado a la cámara no se vuelve una mancha: aparece desde un poco más lejos
@@ -105,8 +119,10 @@ void main() {
                 col += T * dl * lc * lt_a[j].w / ((1.0 + q2) * (1.0 + q2)) * exp(-t / depth) * dt;
             }
         }
-        if (dn > 0.0001) {
-            T *= exp(-sigma * dn * dt);
+        // el gas de la vaina: los nudos lo iluminan apenas desde adentro
+        col += T * violet * glow_k * fd.w * dens_k * exp(-t / (0.5 * depth)) * smoothstep(0.04, 0.25, t) * dt;
+        if (dn + hal > 0.0001) {               // lo de adelante tapa a lo de atrás
+            T *= exp(-(sigma * dn + hal) * dt);
             if (T < 0.03) break;
         }
         t += dt;

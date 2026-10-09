@@ -12,6 +12,8 @@
 // - Relámpagos: como una tormenta vista de lejos, la nube se enciende desde adentro un instante (no
 //   se ve el rayo, solo la luz de su canal en el medio). Los disparan los estallidos del track.
 // - El medio crece con el track (más extenso y más denso) y en el final cae todo hacia el punto.
+// - Truenos: cada tom es una onda de presión que sale del punto y atraviesa el medio; empuja la
+//   materia hacia afuera y la comprime a su paso (el frente es irregular y solo se ve en lo que toca).
 
 uniform vec2 out_size;
 uniform float aspect, focal;
@@ -28,6 +30,9 @@ uniform int n_ly;
 uniform vec4 ly_d[8];                  // capas: dirección (xyz) y actividad
 uniform vec4 ly_p[8];                  // capas: radio, ancho angular, blancura, -
 uniform float env_r, dens_k;          // extensión y densidad del medio (crece con el track)
+uniform int n_wv;
+uniform vec4 wv[4];                    // truenos: radio del frente, amplitud, ancho, fase del frente
+uniform vec2 wk[4];                    // truenos: la estela (desplazamiento que queda atrás, largo)
 uniform int n_fl;
 uniform vec4 fl_a[2];                  // relámpagos: un extremo del canal (xyz) e intensidad
 uniform vec4 fl_b[2];                  // relámpagos: el otro extremo (xyz)
@@ -53,13 +58,25 @@ float source(vec2 d, float sig_px, float glare_px) {
 // densidad del medio en p (y la posición en el fluido, para reusar)
 float density(vec3 p, float r) {
     vec3 d = p / r;
+    // los truenos: el frente empuja la materia hacia afuera y la comprime; un medio denso no vuelve
+    // enseguida: lo que pasó el frente queda desplazado (la estela) y se asienta despacio
+    float shell = 0.0, disp = 0.0;
+    for (int j = 0; j < n_wv; j++) {
+        float Rj = wv[j].x * (1.0 + 0.25 * (texture(noise, d * 0.35 + vec3(wv[j].w)).x - 0.5));
+        float x = (r - Rj) / wv[j].z;
+        float g = exp(-x * x);
+        float wake = wk[j].x * (x < 0.0 ? exp((r - Rj) / wk[j].y) * smoothstep(0.0, 0.15, r) : g);
+        disp += 2.0 * wv[j].y * wv[j].z * g + wake;
+        shell += wv[j].y * g;
+    }
+    r = max(r - disp, 0.004);
     // giro diferencial (más rápido cerca) y caída hacia el punto (más rápida cerca)
     // la materia, en coordenadas log-radiales: cae hacia el punto sin llegar nunca (cada vez más
     // lenta, como cerca de un horizonte) y su forma no se degrada con el tiempo
     vec3 dr = rotate(d, swirl_ax, -swirl * (1.0 + 0.9 * exp(-r / 0.7)));
     vec3 q = dr * 1.6 + vec3(0.37, 0.71, 0.59) * (1.1 * log(r) + flow);
     // turbulencia: el fluido se deforma con un campo de ruido que evoluciona
-    vec3 w = texture(noise, q * 0.045 + vec3(0.013, 0.007, 0.011) * turb).xyz - 0.5;
+    vec3 w = texture(noise, q * 0.035 + vec3(0.013, 0.007, 0.011) * turb).xyz - 0.5;
     q += warp_k * w;
     float a = 0.5, f = 0.085, s = 0.0;
     for (int o = 0; o < 4; o++) {
@@ -69,7 +86,7 @@ float density(vec3 p, float r) {
         a *= 0.55;
     }
     float env = exp(-r / env_r) * smoothstep(0.015, 0.09, r);
-    return dens_k * pow(s / 0.8, 1.6) * env;
+    return dens_k * pow(s / 0.8, 1.6) * env * (1.0 + 2.2 * shell);
 }
 
 void main() {
