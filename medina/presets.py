@@ -33,6 +33,10 @@ PRESETS = {
     # Inflación (EP, motor de GPU): el espacio se estira exponencialmente y las fluctuaciones
     # cuánticas crecen hasta volverse la estructura del universo.
     "inflacion":     dict(style="inflation", glitch=False, ghost=False, bloom=1.2),
+    # cápsulas (motor de GPU, fuera del EP): píldoras de dos mitades que caen en columnas, con el
+    # color de una película delgada (iridiscencia real, en la paleta)
+    "capsulas":      dict(style="capsules", glitch=False, ghost=False, trail=False, grain=0.35,
+                          bloom=1.3),
     # viaje: el track decide el estilo. Antes del primer silencio, mundo de partículas (polvo que
     # viene hacia la cámara); después, el disco en diagonal, cada vez más de canto. Solo cambia en
     # las liberaciones. Nada de anillos ni círculos: lo que se ve tiene que parecer parte del espacio.
@@ -48,7 +52,7 @@ SCENES = {
     "radio de schwarzchild": "agujero",
     "inflacion": "inflacion",
 }
-GPU_STYLES = ("hole", "singularity", "inflation")       # escenas que solo dibuja el motor de GPU
+GPU_STYLES = ("hole", "singularity", "inflation", "capsules")       # escenas que solo dibuja el motor de GPU
 
 
 def scene_for(path):

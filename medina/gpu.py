@@ -50,6 +50,20 @@ def _gauss(sigma):
     return radius, w
 
 
+def _h01(c, r, k, seed):
+    """El hash de las celdas de capsules.frag (la misma cuenta en enteros de 32 bits)."""
+    M = 0xFFFFFFFF
+
+    def hu(x):
+        x ^= x >> 16
+        x = (x * 0x7FEB352D) & M
+        x ^= x >> 15
+        x = (x * 0x846CA68B) & M
+        return x ^ (x >> 16)
+    inner = (((r & M) * 0x85EBCA77) & M) ^ (((seed & M) * 0xC2B2AE3D) & M) ^ (((k & M) * 0x27D4EB2F) & M)
+    return (hu((((c & M) * 0x9E3779B1) & M) ^ hu(inner)) & 0xFFFFFF) / 16777215.0
+
+
 def _set(prog, **kw):
     for k, v in kw.items():
         if k in prog:
@@ -85,11 +99,11 @@ class GPURenderer:
         prog = lambda frag: ctx.program(vertex_shader=vert, fragment_shader=_src(frag))
         self.p_scene, self.p_down = prog("scene.frag"), prog("lanczos.frag")
         self.p_hole, self.p_sing = prog("hole.frag"), prog("singularity.frag")
-        self.p_infl = prog("inflation.frag")
+        self.p_infl, self.p_caps = prog("inflation.frag"), prog("capsules.frag")
         tri = ctx.buffer(np.array([-1, -1, 3, -1, -1, 3], np.float32).tobytes())
         self.vao = {k: ctx.vertex_array(p, [(tri, "2f", "p")]) for k, p in
                     (("scene", self.p_scene), ("down", self.p_down), ("hole", self.p_hole),
-                     ("sing", self.p_sing), ("infl", self.p_infl))}
+                     ("sing", self.p_sing), ("infl", self.p_infl), ("caps", self.p_caps))}
         # escena a S x la salida; Lanczos horizontal (intermedio en 8 bits) y vertical
         self.t_scene = ctx.texture((self.S * g.tw, self.S * g.th), 4)
         self.f_scene = ctx.framebuffer([self.t_scene])
@@ -145,7 +159,7 @@ class GPURenderer:
             t.filter = (moderngl.NEAREST, moderngl.NEAREST)
             self.t_grain.append(t)
 
-    def _post(self, i, hole, bloom_k=1.0, ghost=True):
+    def _post(self, i, hole, bloom_k=1.0, ghost=True, trail=True, grain_k=1.0):
         ctx, P, cpu = self.ctx, self.post, self.post.p
         L, W, H = cpu.L, self.grid.W, self.grid.H
         accent = tuple(np.asarray(self.accent, np.float32) / 255)
@@ -155,7 +169,7 @@ class GPURenderer:
         self.t_frame.use(0)
         self.t_acc[prev].use(1)
         gpx = int(round(float(cpu.ghost[i]) * L["ghost_px"] * cpu.s)) if ghost else 0
-        _set(self.p_trail, frame=0, acc_prev=1, fresh=int(P.fresh), decay=float(cpu.decay[i]),
+        _set(self.p_trail, frame=0, acc_prev=1, fresh=int(P.fresh), decay=float(cpu.decay[i]) if trail else 0.0,
              trail_g=float(L["trail_g"]), ghost_px=gpx,
              accent=accent, size=(W, H), has_hole=int(hole is not None), hole=hole_u)
         self.f_trail[nxt].use()
@@ -190,7 +204,7 @@ class GPURenderer:
         _set(self.p_final, ytex=0, bl0=1, bl1=2, grain_tex=3, bloom=b, bloom_mix=float(L["bloom_mix"]),
              size=(W, H), has_hole=int(hole is not None), hole=hole_u, amp=float(amp), s_=float(cpu.s),
              vignette=float(L["vignette"]), black=float(L.get("black", 0.0)), accent=accent,
-             grain_off=(ox, oy), grain=float(cpu.grain[i]))
+             grain_off=(ox, oy), grain=float(cpu.grain[i]) * grain_k)
         self.f_out.use()
         self.vao["final"].render()
         return self.f_out
@@ -240,6 +254,9 @@ class GPURenderer:
             return self._finish(f, i, A, P, None)
         if P["style"] == "inflation":
             self._inflation(i)
+            return self._finish(f, i, A, P, None)
+        if P["style"] == "capsules":
+            self._capsules(i)
             return self._finish(f, i, A, P, None)
         has_phen = 0
         if not silent:                                  # lo disperso: en la CPU
@@ -828,6 +845,225 @@ class GPURenderer:
         self.f_scene.use()
         self.vao["infl"].render()
 
+    CAPS_FOCAL, CAPS_D = 2.0, 4.0
+
+    def _caps_traits(self):
+        """El carácter de las cápsulas de este track (del ADN): separación y vacío, forma, orden, la
+        familia de color de la película. La separación sigue al lado corto (en vertical, más columnas)."""
+        ax = self.score.dna or {}
+        g = lambda k: float(ax.get(k, 0.5))
+        asp = self.grid.tw / self.grid.th
+        return dict(sp=(0.95 + 0.25 * g("vacio") - 0.15 * g("densidad")) * float(np.sqrt(np.clip(asp, 0.5, 1.0))),
+                    vac=0.15 + 0.35 * g("vacio"), rad=0.16 + 0.05 * g("densidad"),
+                    hlen=0.2 + 0.12 * (1 - g("hipnosis")), disorder=0.35 + 0.65 * g("caos"),
+                    d0=200.0 + 120.0 * g("luz"), d_rng=160.0)
+
+    def _caps_cell(self, fall, x, y, tr, seed):
+        """La celda (columna, fila) que ocupa el punto (x, y) del plano de las cápsulas con la caída
+        `fall` (la misma cuenta del shader)."""
+        sp = tr["sp"]
+        c = int(np.floor(x / sp + 0.5))
+        Y = fall * (0.8 + 0.4 * _h01(c, 0, 11, seed)) + sp * _h01(c, 0, 12, seed)
+        return c, Y
+
+    def _caps_motion(self):
+        """El movimiento de las cápsulas (una vez por partitura, así cada cuadro se dibuja solo).
+        - la caída: lenta siempre, crece con la energía; cada kick es un empuje hacia abajo que se apaga
+          sin volver; en la tensión casi se suspende;
+        - el giro: cada cápsula gira sobre su eje, más con la energía; el kick le suma un impulso;
+        - la tensión: la película se adelgaza hasta volverse negra (como una pompa antes de romperse);
+        - la respiración (el beat antes de la liberación): negro;
+        - la liberación: el tiempo se detiene un beat y una onda de color sale del centro; después la
+          caída acelera (crece exponencialmente medio compás) y se asienta, y cae la píldora roja;
+        - la apertura: cuando el tiempo vuelve, algunas cápsulas se abren (más cuanto más larga fue la
+          tensión) y sueltan polvo: sale con un estallido que el aire frena, y cae despacio con la escena;
+        - los ataques de las capas: una cápsula brilla y las bandas le corren por la superficie;
+        - el final: se apagan con el track."""
+        if getattr(self, "_cm", None) is not None:
+            return self._cm
+        sc = self.score
+        A, fps, sy = sc.analysis, sc.fps, sc.system
+        n, sp = len(sc.frames), self._spring
+        ons = A["onsets"]
+        bpm = 60 * fps / float(np.median(np.diff(ons))) if len(ons) > 1 else 128.0
+        rel = self._release_gesture(A, fps, bpm, n)
+        speed = rel["speed"]
+        kick = np.clip(A["kick"].astype(np.float64), 0, 1.5)
+        closed = ~A["sub_on"].astype(bool) | A["break_zone"].astype(bool)
+        energy = np.where(closed, 0.05, 0.6 * A["low"] + 0.4 * A["mid"]).astype(np.float64)
+        e_s = np.clip(sp(energy, fps, 0.12, 1.0, rate=speed), 0, 1.5)
+        tens = np.clip(sp(np.where(closed, A["tension"], 0.0).astype(np.float64), fps, 0.5, 1.0, 4.0, 1.0), 0, 1)
+        T = 2 * 60 / bpm
+        dw, imp = rel["wave_dt"], rel["wave_imp"]
+        efold = np.where(dw < 0, 0.0, np.where(dw < T, (np.exp(4 * np.maximum(dw, 0) / T) - 1) / (np.exp(4) - 1),
+                                               np.exp(-(dw - T) / 1.6))) * imp
+        v = (0.15 + 0.45 * e_s + 0.2 * kick) * (0.6 + 0.4 * sy.orbit) * (1 - 0.8 * tens) + 1.4 * efold
+        fall = np.cumsum(v * speed) / fps
+        tumble = np.cumsum((0.12 + 0.3 * e_s + 0.5 * kick) * (1 - 0.7 * tens) * speed + 0.8 * efold) / fps
+        # negro: la respiración, el silencio y el final
+        smt = lambda x: np.clip(x, 0, 1) ** 2 * (3 - 2 * np.clip(x, 0, 1))
+        dark = np.clip(sp((A["breath"] | A["silent"]).astype(np.float64), fps, 6.0, 1.0, 3.0, 1.0), 0, 1)
+        fd = np.clip(A["fade"].astype(np.float64), 0, 1)
+        fade_k = (1 - dark) * (1 - smt(fd))
+        # la onda de color de la liberación: corre mientras el tiempo está quieto
+        wave_r = 0.1 + 2.2 * rel["echo_q"]
+        wave_amp = rel["echo_k"]
+        tau = np.cumsum(speed) / fps                            # el tiempo de la imagen
+        tr, seed = self._caps_traits(), int(sc.seed % 1000003)
+        hh = self.CAPS_D / self.CAPS_FOCAL                      # media altura visible en el plano
+        hw = hh * self.grid.tw / self.grid.th
+        # la píldora roja: entra por arriba en cada liberación
+        reds = []
+        for r in np.where(A["rise"])[0]:
+            rg = np.random.default_rng([sc.seed, 7777, int(r)])
+            c, Y = self._caps_cell(fall[r], rg.uniform(-0.6, 0.6) * hw, 0.0, tr, seed)
+            reds.append((int(r), c, int(np.ceil((hh + 0.65 * tr["sp"] + Y) / tr["sp"]))))
+        red_cells = {(c, w) for _, c, w in reds}
+        # las que se abren: cuando el tiempo vuelve a correr, celdas visibles y ocupadas
+        hold = int(round(60 / bpm * fps))
+        opens, dust = [], []
+        for r in np.where(A["rise"])[0]:
+            o = min(n - 1, int(r) + hold)
+            imp = float(rel["wave_imp"][min(n - 1, o + 1)]) or 0.55
+            rg = np.random.default_rng([sc.seed, 9191, int(r)])
+            want, got = int(round(2 + 3 * imp)), set()
+            for _ in range(40):
+                if len(got) == want:
+                    break
+                x, y = rg.uniform(-0.75, 0.75) * hw, rg.uniform(-0.7, 0.7) * hh
+                c, Y = self._caps_cell(fall[o], x, y, tr, seed)
+                w = int(np.floor((y + Y) / tr["sp"] + 0.5))
+                if _h01(c, w, 1, seed) >= tr["vac"] and (c, w) not in red_cells and (c, w) not in got:
+                    got.add((c, w))
+                    opens.append((o, c, w, imp))
+                    dust.append(self._caps_dust(o, c, w, imp, fall, tr, seed, rg))
+        # los ataques de las capas: cada uno enciende una cápsula visible (las graves, más)
+        Ly = A.get("layers") or dict(act=np.zeros((n, 0)), on=np.zeros((n, 0), bool), center=np.zeros(0))
+        G = Ly["act"].shape[1]
+        oc = np.clip(np.log2(np.maximum(Ly["center"][:G], 300) / 300) / 4.5, 0, 1)
+        lw = (0.1 + 0.6 * (1 - oc) ** 1.5) / max(float((0.1 + 0.6 * (1 - oc) ** 1.5).max()), 1e-9) if G else oc
+        evs, last = [], np.full(G, -(10 ** 9))
+        for b, k, s in layer_attacks(Ly, fps, A.get("silent")):
+            if s * lw[k] < 0.3 or b - last[k] < (0.2 + 0.25 * lw[k]) * fps:
+                continue
+            rg = np.random.default_rng([sc.seed, 8888, k, b])
+            for _ in range(8):                                  # una celda visible y ocupada
+                x, y = rg.uniform(-0.85, 0.85) * hw, rg.uniform(-0.85, 0.85) * hh
+                c, Y = self._caps_cell(fall[b], x, y, tr, seed)
+                w = int(np.floor((y + Y) / tr["sp"] + 0.5))
+                if _h01(c, w, 1, seed) >= tr["vac"] and (c, w) not in red_cells:
+                    evs.append((int(b), c, w, float(s * lw[k])))
+                    last[k] = b
+                    break
+        self._cm = dict(fall=fall, tumble=tumble, thin=tens, wave_r=wave_r, wave_amp=wave_amp, fade_k=fade_k,
+                        tau=tau, reds=reds, evs=evs, ev_b=np.array([e[0] for e in evs], np.int64),
+                        opens=opens, dust=dust)
+        return self._cm
+
+    DUST_N, ZFAR = 600, 20.0
+
+    def _caps_dust(self, o, c, w, imp, fall, tr, seed, rg):
+        """El polvo de una cápsula que se abre en el cuadro o: dónde nace cada mota (cerca del corte),
+        su velocidad, cuánto la frena el aire y cuánto acompaña la caída; su tamaño, color y vida. Muchas
+        motas finas y brillantes, y algunas grandes y tenues (el volumen de la nube)."""
+        sp, N, Nh = tr["sp"], self.DUST_N, self.DUST_N // 8
+        vc = 0.8 + 0.4 * _h01(c, 0, 11, seed)
+        Y = fall[o] * vc + sp * _h01(c, 0, 12, seed)
+        ctr = np.array([(c + 0.24 * (_h01(c, w, 3, seed) - 0.5)) * sp,
+                        w * sp - Y + 0.2 * sp * (_h01(c, w, 4, seed) - 0.5),
+                        self.CAPS_D + 0.5 * sp * (_h01(c, w, 5, seed) - 0.5)])
+        M = N + Nh
+        d = rg.normal(size=(M, 3))
+        d /= np.linalg.norm(d, axis=1, keepdims=True)
+        d[:, 2] *= 0.5                                          # más hacia los costados que hacia la cámara
+        v0 = d * sp * (0.25 + 0.9 * rg.uniform(size=(M, 1)) ** 1.5) * (0.6 + 0.6 * imp)
+        v0[N:] *= 0.5                                           # la nube se abre más despacio
+        p0 = ctr + rg.normal(0, 0.06 * sp, (M, 3))
+        acc = np.asarray(self.accent, np.float64) / 255
+        tone = np.stack([np.ones(3), 0.25 * acc + 0.75, 0.55 * acc + 0.45 * np.array([1.0, 0.8, 1.0]), acc * 1.3])
+        col = tone[rg.integers(0, len(tone), M)]
+        size = np.concatenate([1.0 + 2.6 * rg.uniform(size=N) ** 2, 8.0 + 16.0 * rg.uniform(size=Nh)])
+        bri = np.concatenate([rg.uniform(0.6, 1.6, N), rg.uniform(0.08, 0.2, Nh)]) * (0.6 + 0.4 * imp)
+        return dict(o=o, vc=vc, p0=p0, v0=v0, td=rg.uniform(0.35, 1.2, M), kf=rg.uniform(0.35, 0.85, M),
+                    size=size, col=col, bri=bri, life=np.concatenate([rg.uniform(1.5, 4.0, N), rg.uniform(2.0, 4.5, Nh)]))
+
+    def _caps_points(self, i):
+        """Las motas de polvo vivas en el cuadro i: (N, 8) = posición, color, tamaño (px de la escena), brillo."""
+        cm, S = self._cm, self.S
+        tau, fall = cm["tau"], cm["fall"]
+        out = []
+        for P in cm["dust"]:
+            o = P["o"]
+            if i < o:
+                continue
+            t = tau[i] - tau[o]
+            if t > 6.0:
+                continue
+            td = P["td"][:, None]
+            pos = P["p0"] + P["v0"] * td * (1 - np.exp(-t / td))
+            pos[:, 1] -= P["kf"] * (fall[i] - fall[o]) * P["vc"] + 0.02 * t * t
+            bri = P["bri"] * np.exp(-t / P["life"]) * min(1.0, t / 0.08) * float(cm["fade_k"][i])
+            size = P["size"] * S * self.CAPS_D / np.maximum(pos[:, 2], 0.5)
+            out.append(np.column_stack([pos, P["col"], size, bri]))
+        return np.concatenate(out).astype(np.float32) if out else np.zeros((0, 8), np.float32)
+
+    def _capsules(self, i):
+        """Las cápsulas (shaders/capsules.frag)."""
+        g, sc = self.grid, self.score
+        cm, sy = self._caps_motion(), sc.system
+        fps, tau = sc.fps, cm["tau"]
+        ev = np.zeros((8, 4), np.float32)
+        j0, j1 = np.searchsorted(cm["ev_b"], [i - 3 * fps, i + 1])
+        on = sorted(((s * np.exp(-(tau[i] - tau[b]) / 0.3), c, w, s, tau[i] - tau[b])
+                     for b, c, w, s in cm["evs"][j0:j1]), reverse=True)[:8]
+        for k, (_, c, w, s, age) in enumerate(on):
+            ev[k] = (c, w, s, age)
+        red = np.zeros((4, 2), np.float32)
+        live = [(c, w) for b, c, w in cm["reds"] if b <= i < b + 60 * fps][-4:]
+        for k, (c, w) in enumerate(live):
+            red[k] = (c, w)
+        opn = np.zeros((6, 4), np.float32)
+        act = [(c, w, tau[i] - tau[o], imp) for o, c, w, imp in cm["opens"] if o <= i < o + 30 * fps][-6:]
+        for k, row in enumerate(act):
+            opn[k] = row
+        p = self.p_caps
+        _set(p, out_size=(self.S * g.tw, self.S * g.th), aspect=float(g.tw / g.th), focal=self.CAPS_FOCAL,
+             D=self.CAPS_D, fall=float(cm["fall"][i]), tumble=float(cm["tumble"][i]), thin=float(cm["thin"][i]),
+             wave_r=float(cm["wave_r"][i]), wave_amp=float(cm["wave_amp"][i]), bright=1.0,
+             light=float(max(sy.light, 0.75)), fade_k=float(cm["fade_k"][i]),
+             accent=tuple(np.asarray(self.accent, np.float32) / 255), seed=int(sc.seed % 1000003),
+             n_ev=len(on), n_red=len(live), n_op=len(act), zfar=self.ZFAR, **self._caps_traits())
+        p["ev"].write(ev.tobytes())
+        p["red"].write(red.tobytes())
+        p["op"].write(opn.tobytes())
+        import moderngl
+        ctx = self.ctx
+        if getattr(self, "f_caps", None) is None:            # la escena con profundidad (para el polvo)
+            self.rb_depth = ctx.depth_renderbuffer(self.t_scene.size)
+            self.f_caps = ctx.framebuffer([self.t_scene], self.rb_depth)
+            vert, frag = _src("dust.vert"), _src("dust.frag")
+            self.p_dust = ctx.program(vertex_shader=vert, fragment_shader=frag)
+            self.b_dust = ctx.buffer(reserve=8192 * 8 * 4, dynamic=True)
+            self.vao["dust"] = ctx.vertex_array(self.p_dust, [(self.b_dust, "3f 3f 1f 1f", "pos", "col", "size", "bri")])
+        self.f_caps.use()
+        self.f_caps.clear(0.0, 0.0, 0.0, 1.0, depth=1.0)
+        ctx.enable(moderngl.DEPTH_TEST)
+        ctx.depth_func = "<="
+        self.vao["caps"].render()
+        pts = self._caps_points(i)[:8192]
+        if len(pts):
+            _set(self.p_dust, aspect=float(g.tw / g.th), focal=self.CAPS_FOCAL, zfar=self.ZFAR)
+            self.b_dust.write(pts.tobytes())
+            self.f_caps.depth_mask = False
+            ctx.enable(moderngl.BLEND | moderngl.PROGRAM_POINT_SIZE)
+            ctx.blend_func = moderngl.ONE, moderngl.ONE
+            ctx.depth_func = "<"
+            self.vao["dust"].render(moderngl.POINTS, vertices=len(pts))
+            ctx.disable(moderngl.BLEND | moderngl.PROGRAM_POINT_SIZE)
+            ctx.blend_func = moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA
+            self.f_caps.depth_mask = True
+        ctx.disable(moderngl.DEPTH_TEST)
+
     def _finish(self, f, i, A, P, hole):
         sc, g = self.score, self.grid
         # supersampling -> el cuadro con Lanczos (con el margen de la grilla en negro)
@@ -842,7 +1078,9 @@ class GPURenderer:
         _set(self.p_down, img=0, dir=(0, 1), scale=float(self.S), offset=(g.x_off, g.ty0))
         self.vao["down"].render()
         self.f_frame.viewport = (0, 0, g.W, g.H)
-        fbo = (self._post(i, hole, P.get("bloom", 1.0), P.get("ghost", True)) if self.post is not None
+        fbo = (self._post(i, hole, P.get("bloom", 1.0), P.get("ghost", True), P.get("trail", True),
+                          P.get("grain", 1.0))
+               if self.post is not None
                else self.f_frame)
         f[:] = np.frombuffer(fbo.read(components=3, alignment=1), np.uint8).reshape(g.H, g.W, 3)
         glitch(f, A, i, sc.seed, g.s, P)

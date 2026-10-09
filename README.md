@@ -64,6 +64,9 @@ python3 -m venv .venv
 
 # el viaje anterior (polvo y disco), en vez del agujero
 .venv/bin/python brutal_viz.py tracks/mi_track.wav -o renders/mi_track.mp4 --preset viaje
+
+# las cápsulas, en vertical para reels (la escena se adapta a la proporción)
+.venv/bin/python brutal_viz.py tracks/mi_track.wav -o renders/mi_track.mp4 --preset capsulas --res 1080x1920
 ```
 
 Flujo recomendado: primero un fragmento de 10–30 s con `--chunk` y algunos `--stills`; el video completo, solo de la versión aprobada. Un tramo o un cuadro suelto salen iguales que en el video completo (la estela se precalienta 3 s antes).
@@ -76,7 +79,7 @@ Si el audio viene casi mudo (típico de una exportación con pistas en solo), el
 
 | Opción | Qué hace |
 |---|---|
-| `--preset agujero \| viaje` | `agujero` (por defecto con GPU): el agujero negro en 3D; `viaje`: polvo y disco, el track elige el estilo (por defecto sin GPU); `--list-presets` muestra todos |
+| `--preset agujero \| viaje \| capsulas` | `agujero` (por defecto con GPU): el agujero negro en 3D; `viaje`: polvo y disco, el track elige el estilo (por defecto sin GPU); `capsulas`: píldoras iridiscentes que caen; `--list-presets` muestra todos (las escenas del EP se eligen solas por el título) |
 | `--look luz \| seco` | acabado reactivo (por defecto `luz`); `seco` = sin post-proceso |
 | `--paleta violeta \| violeta_rojo \| rgb` | `violeta` (por defecto); `violeta_rojo` alterna con rojo por kick en las liberaciones; `rgb` es la paleta original negro/blanco/rojo con RGB en las liberaciones |
 | `--res 2560x1440` | resolución de salida |
@@ -128,6 +131,19 @@ Cada píxel es un rayo de luz que se curva por la gravedad (geometría de Schwar
 - **La tensión**: la cámara cae hacia el agujero, la sombra crece, el cielo se apaga.
 - **La liberación**, en secuencia: el impacto; el **tiempo se detiene** un beat (solo un **eco de luz** da la vuelta al borde); el tiempo vuelve (acelera un momento para recuperar lo perdido, así la imagen sigue con la música), el espacio se contrae a la **velocidad de la luz** (aberración relativista) y sale una **onda gravitacional** que cruza todo. Más intenso cuanto más larga fue la tensión.
 - **Cada track, su agujero** (de su ADN): la masa y la atracción (vorágine), el borde más grueso (densidad) o más ondulado (caos), blanco o violeta (luz), dónde cae su lado encendido, cuánto cielo hay (vacío), la orientación, el polvo y el brillo de su galaxia, la velocidad de la órbita y del latido (energía).
+
+Necesita el motor de GPU.
+
+### Las cápsulas (`--preset capsulas`, `medina/shaders/capsules.frag`)
+
+Fuera del EP, para cualquier track. Píldoras de dos mitades que caen en columnas sobre el negro, trazadas por rayos (la tapa, apenas más ancha, monta sobre el cuerpo). Sirve en horizontal y en vertical: la separación sigue al lado corto.
+
+- **El color** es una película delgada (la física de una pompa de jabón): las bandas cambian con el ángulo y se funden entre lila, lavanda, violeta azulado e índigo, todo del violeta del track. El contorno se apaga hacia el negro (sin filo).
+- **La caída** crece con la energía; cada kick es un empuje que se apaga sin volver, y cada cápsula gira sobre su eje.
+- **La tensión** adelgaza la película hasta volverla negra (como una pompa antes de romperse) y suspende la caída. La respiración va a negro.
+- **La liberación**: el tiempo se detiene un beat con las cápsulas quietas en el aire y una onda de color que sale del centro; cuando vuelve, algunas cápsulas se abren (más cuanto más larga fue la tensión): las mitades se separan y sueltan **polvo** (partículas con profundidad que el aire frena y caen con la escena). Y cae la **píldora roja** (la única excepción a la paleta, solo en esta escena).
+- **Pequeños eventos**: cada ataque de una capa del track hace brillar una cápsula; las capas graves pesan más.
+- **Cada track, sus cápsulas** (de su ADN): separación y vacío, forma, orden de los ángulos, familia de color.
 
 Necesita el motor de GPU.
 
@@ -221,7 +237,7 @@ El modo viejo para sets (espectro, video del celular, barras, túnel) y los esti
 ```
 
 - **Track sintético** (`tests/synth.py`): tiene una historia conocida (kick con sub, un tramo filtrado, la liberación en un beat exacto, hats en corcheas y un sinte que entra), así que los tests no necesitan tu música. Verifican el tempo, los kicks, la liberación, la tensión, la respiración, los hats, las capas, la partitura (determinista, el viaje cambia solo en liberaciones, cámara y paletas acotadas), el sistema estelar y la velocidad de la luz, y el dibujo con el sistema neutro y con el del ADN (mucho negro, respiración a negro, cuadros sueltos independientes, tramos iguales al video completo). También hay cuadros de referencia en `tests/golden/`: si un cambio de look es intencional, se regeneran con `.venv/bin/python -m tests.make_golden`.
-- **Motor de GPU** (`tests/test_gpu.py`): se ve igual que el de la CPU (con tolerancia), cuadros sueltos independientes y tramos iguales al video completo. Si no hay moderngl u OpenGL, se saltean.
+- **Motor de GPU** (`tests/test_gpu.py`): se ve igual que el de la CPU (con tolerancia), cuadros sueltos independientes y tramos iguales al video completo; el agujero y las cápsulas (mucho negro, silencio a negro, la quietud de la liberación; en las cápsulas, la píldora roja y las que se abren). Si no hay moderngl u OpenGL, se saltean.
 - **Tus tracks** (`tests/test_real_tracks.py`): si están en `tracks/`, se verifican el tempo y las liberaciones validadas contra el espectrograma. Si no están, se saltean.
 
 Para verificar que un cambio no altera la imagen de tus tracks (por ejemplo, el paso a GPU):

@@ -94,3 +94,51 @@ def test_dilatacion_del_tiempo_vuelve_a_la_musica(synth, hole_score):
     tt = np.cumsum(hm["speed"]) / fps
     t = np.arange(len(tt)) / fps
     assert abs(tt[r + 5 * fps] - t[r + 5 * fps]) < 0.05               # vuelve al tiempo de la música
+
+
+# ----------------------------------------------------------------------- las cápsulas ----
+@pytest.fixture(scope="module")
+def caps_score(synth):
+    from medina.score import build_score
+    from tests.conftest import FPS, SEED
+    return build_score(synth["A"], "capsulas", FPS, SEED, system="adn", bpm=synth["bpm"])
+
+
+def test_capsulas_oscuro_y_con_luz(caps_score):
+    f = draw_still(gpu_renderer(caps_score), 50 * caps_score.fps)
+    lum = f.mean(-1)
+    assert (lum < 15).mean() > 0.3 and (lum > 80).mean() > 0.02          # mucho negro, cápsulas con luz
+
+
+def test_capsulas_silencio_es_negro(synth, caps_score):
+    b = np.where(synth["A"]["breath"])[0]
+    f = draw_still(gpu_renderer(caps_score), int(b[len(b) // 2]))
+    assert ((f.mean(-1) > 40).mean()) < 0.03
+
+
+def test_capsulas_tramo_igual_al_video_completo(caps_score):
+    R = gpu_renderer(caps_score)
+    i = 45 * caps_score.fps
+    frame = np.zeros((180, 320, 3), np.uint8)
+    for j in range(0, i + 1):
+        R.draw(frame, j)
+    d = np.abs(frame.astype(int) - draw_still(R, i).astype(int))
+    assert d.max() <= 2 and (d > 0).mean() < 0.001
+
+
+def test_capsulas_liberacion(synth, caps_score):
+    """En la liberación la caída se detiene un beat; después cae la píldora roja y algunas se abren."""
+    R = gpu_renderer(caps_score)
+    cm = R._caps_motion()
+    fps, rises = caps_score.fps, np.where(synth["A"]["rise"])[0]
+    r = int(rises[0])
+    step = np.diff(cm["fall"])
+    assert step[r + 5] < 0.3 * np.median(step[r + 3 * fps:r + 6 * fps])   # quieta en el aire
+    assert len(cm["reds"]) == len(rises) and len(cm["opens"]) >= 2 * len(rises)
+    assert any(o > r and R._caps_points(o + fps).shape[0] > 0 for o, *_ in cm["opens"])   # el polvo
+    # la roja se ve (la celda que elige la CPU es la que dibuja el shader)
+    red = 0
+    for t in range(1, 6):
+        f = draw_still(R, r + t * fps).astype(int)
+        red = max(red, int(((f[..., 0] > 90) & (f[..., 0] > f[..., 2] + 50)).sum()))
+    assert red > 20
